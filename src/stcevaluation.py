@@ -54,14 +54,12 @@ def RSNOD(pred, truth):
 
 
 def nugget_evaluation(pred, y, turns):
+    # pred = y = (?, 7, 7)
     total_RNSS = 0
     total_JSD = 0
     total_sent = 0
-    dialog_len = pred.shape[-1]
-    for p, t, turn in zip(pred, y, turns):
-        for i in range(0, max_sent * turn, max_sent):
-            pred_sent = p[i:i + max_sent]
-            y_sent = t[i:i + max_sent]
+    for pred_sents, y_sents in zip(pred, y):  # (7, 7)
+        for pred_sent, y_sent in zip(pred_sents, y_sents):  # (7)
             if np.all(y_sent == 0):
                 break
             else:

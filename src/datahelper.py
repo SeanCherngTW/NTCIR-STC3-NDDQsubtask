@@ -16,23 +16,8 @@ from gensim.models.keyedvectors import KeyedVectors
 from gensim.models import word2vec
 from gensim import models
 
-
-# import nltk
-# nltk.download()
 from nltk.corpus import stopwords
 sw = stopwords.words("english")
-
-# Write log to a file
-# logging.basicConfig(level=logging.DEBUG)
-# logging.basicConfig(level=logging.DEBUG,
-#                     format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
-#                     datefmt='%m-%d %H:%M',
-#                     handlers=[logging.FileHandler('STC3.log', 'w', 'utf-8'), ])
-# console = logging.StreamHandler()
-# console.setLevel(logging.INFO)
-# formatter = logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s')
-# console.setFormatter(formatter)
-# logging.getLogger('').addHandler(console)
 
 
 class DataHelper:
@@ -273,17 +258,17 @@ class DataHelper:
         for item in res:
             print(item[0] + "," + str(item[1]))
 
-    def corpus_reshape(self, corpus):
-        for i in range(len(corpus)):
-            dialog, sentence, word = corpus[i].shape
-            corpus[i] = np.reshape(corpus[i], (dialog * sentence, word))
-        return corpus
+    # def corpus_reshape(self, corpus):
+    #     for i in range(len(corpus)):
+    #         dialog, sentence, word = corpus[i].shape
+    #         corpus[i] = np.reshape(corpus[i], (dialog * sentence, word))
+    #     return corpus
 
-    def nd_reshape(self, nd_label):
-        for i in range(len(nd_label)):
-            dialog, l = nd_label[i].shape
-            nd_label[i] = np.reshape(nd_label[i], (dialog * l))
-        return nd_label
+    # def nd_reshape(self, nd_label):
+    #     for i in range(len(nd_label)):
+    #         dialog, l = nd_label[i].shape
+    #         nd_label[i] = np.reshape(nd_label[i], (dialog * l))
+    #     return nd_label
 
     def turn2mask(self, turns):
         # {'CNUG*': 0, 'CNUG': 1, 'CNaN': 2, 'CNUG0': 3, 'HNUG*': 4, 'HNUG': 5, 'HNaN': 6}
@@ -299,7 +284,7 @@ class DataHelper:
                 else:
                     dialog_mask.append(np.zeros(self.max_sent))
 
-            dialog_mask = np.reshape(dialog_mask, [self.max_sent * self.NDclasses])
+            dialog_mask = np.asarray(dialog_mask)
             all_dialog_masks.append(np.asarray(dialog_mask.copy()))
         return all_dialog_masks
 
@@ -370,7 +355,8 @@ class DataHelper:
             Ynd.append(np.asarray(dialogND.copy(), dtype=np.float32))
             Ydq.append(quality.copy())
         logger.info('Training data unknown words count: {}'.format(unk))
-        return self.corpus_reshape(X), self.nd_reshape(Ynd), Ydq, turns, self.turn2mask(turns)
+        masks = self.turn2mask(turns)
+        return np.asarray(X), np.asarray(Ynd), np.asarray(Ydq), turns, masks
 
     def get_model_test_data(self, token_type, remove_stopwords, to_lower):
         logger = logging.getLogger('corpus word2vec')
@@ -413,7 +399,8 @@ class DataHelper:
 
             X.append(np.asarray(dialogX.copy(), dtype=np.float32))
         logger.info('Testing data unknown words count: {}'.format(unk))
-        return self.corpus_reshape(X), turns, self.turn2mask(turns)
+        masks = self.turn2mask(turns)
+        return np.asarray(X), turns, masks
 
     def pred_to_submission(self, testND, testDQA, testDQS, testDQE, turns, IDs, filename):
             # {'CNUG*': 0, 'CNUG': 1, 'CNaN': 2, 'CNUG0': 3, 'HNUG*': 4, 'HNUG': 5, 'HNaN': 6}

@@ -17,7 +17,6 @@ embsize = param.embsize
 max_sent = param.max_sent
 NDclasses = param.NDclasses
 
-# logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger('ND task')
 tf.logging.set_verbosity(tf.logging.ERROR)
 
@@ -26,7 +25,6 @@ def weight_variable(shape, name, reuse=False):
     with tf.variable_scope("", reuse=reuse):
         return tf.get_variable(
             shape=shape,
-            # initializer=tf.contrib.layers.xavier_initializer(),
             initializer=tf.contrib.keras.initializers.he_normal(),
             name=name,
         )
@@ -68,35 +66,33 @@ def maxpool(h, pool_size, strides, name, reuse=False):
 def init_input(doclen, embsize):
     # doclen = 150, embsize = 256
     with tf.name_scope("inputs"):
-        x = tf.placeholder(tf.float32, [None, max_sent * doclen, embsize], name='input_X')
-        y = tf.placeholder(tf.float32, [None, max_sent * NDclasses], name='output_Y')
+        x = tf.placeholder(tf.float32, [None, max_sent, doclen, embsize], name='input_X')
+        y = tf.placeholder(tf.float32, [None, max_sent, NDclasses], name='output_Y')
         bs = tf.placeholder(tf.int32, [], name='batch_size')
         turns = tf.placeholder(tf.int32, [None, ], name='turns')
-        masks = tf.placeholder(tf.float32, [None, max_sent * NDclasses], name='masks')
-    return x, y, bs, turns, masks
+        masks = tf.placeholder(tf.float32, [None, max_sent, NDclasses], name='masks')
+        num_sent = tf.placeholder(tf.int32, [], name='num_sent')
+    return x, y, bs, turns, masks, num_sent
 
 
-def loss_function(pred, y, batch_size, masks):
-    # pred: (?, 7) * 7 = (batch, 7類) * 7個時間點
-    # y: (?, 7, 7) = (batch, 7個時間點, 7類)
+def loss_function(pred, y, batch_size, num_sent, masks):
     with tf.name_scope('Loss'):
         cost = 0
+        pred_masked = tf.multiply(pred, masks)
+        pred_sents = tf.unstack(pred_masked, axis=1)
+        y_sents = tf.unstack(y, axis=1)
+        num_sent = tf.cast(num_sent, tf.float32)
 
-        pred_partitions = tf.split(pred, batch_size, axis=0)
-        y_partitions = tf.split(y, batch_size, axis=0)
-        mask_partitions = tf.split(masks, batch_size, axis=0)
+        for pred_sent, y_sent in zip(pred_sents, y_sents):  # (?, 7) * 7
 
-        for pred_part, y_part, mask_part in zip(pred_partitions, y_partitions, mask_partitions):
-            pred_part = tf.multiply(pred_part, mask_part)
-            pred_sents = tf.split(pred_part, max_sent, axis=1)
-            y_sents = tf.split(y_part, max_sent, axis=1)
+            logger.debug('Loss: pred_sent.shape = {}'.format(str(pred_sent.shape)))
+            logger.debug('Loss: y_sent.shape = {}'.format(str(y_sent.shape)))
+            pred_sent = tf.reshape(pred_sent, [-1, NDclasses])
+            y_sent = tf.reshape(y_sent, [-1, NDclasses])
 
-            for pred_sent, y_sent in zip(pred_sents, y_sents):
-                pred_sent = tf.reshape(pred_sent, [NDclasses, ])
-                y_sent = tf.reshape(y_sent, [NDclasses, ])
+            cost += -tf.reduce_sum(y_sent * tf.log(tf.clip_by_value(pred_sent, 1e-10, 1.0)))
 
-                cost += tf.reduce_mean(-tf.reduce_sum(y_sent * tf.log(tf.clip_by_value(pred_sent, 1e-10, 1.0))))
-    return cost
+    return tf.divide(cost, num_sent)
 
 
 def build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm):
@@ -180,12 +176,9 @@ def build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, name, rnn_type):
 
         with tf.name_scope('add_Fw_Bw'):
             # final_state = tf.nn.tanh(tf.add(final_state_fw, final_state_bw))
-            # (batch, max_sent, rnn_hiddens) = (?, 7, 128) 每一筆資料，有7個時間點，每個時間點有128維的輸出
             rnn_output = tf.nn.tanh(tf.add(output_fw, output_bw))
             logger.debug('{} rnn_output {}'.format(name, str(rnn_output.shape)))
 
-        # 有7個時間點的輸出，每個時間點的輸出的特徵維度是128，我們要分別對這7個時間點的輸出做softmax
-        # 所以把(?, 7, 128)轉換成7個(?, 128)的list -> rnn_output: (?, 7, 128) -> (?, 128) * 7
         # rnn_output = tf.unstack(tf.transpose(rnn_output, [1, 0, 2]))  # (batch, max_sent, rnn_hiddens) = (?, 128) * 7
         # print(name, 'rnn_output_after_unstack', len(rnn_output), rnn_output[0].shape)
 
@@ -236,23 +229,22 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, label_dependency, masks):
     rnn_outputs = tf.unstack(rnn_outputs, axis=1)
     prev_nd = tf.fill((bs, max_sent), 0.0)
     logger.debug('masks {}'.format(str(masks.shape)))
-    masks = tf.split(masks, max_sent, axis=1)
+    masks = tf.unstack(masks, max_sent, axis=1)
+    fc_outputs = []
     with tf.name_scope('FCLayer'):
         is_first = True
         fc_reuse = False
 
-        # 分別輸入這7時間點的輸出(?, 128)，然後分別對這7個時間點做softmax，算出7類的機率
-        # 所以會變成(?, 128) * 7 -> (?, 7) * 7，(batch, 7類) * 7個時間點
         for i, rnn_output in enumerate(rnn_outputs):
             if batch_norm:
                 rnn_output = tf.layers.batch_normalization(rnn_output)
 
-            if label_dependency:
-                if i > 0:
-                    logger.debug('masks unstack {}'.format(str(masks[i - 1].shape)))
-                    logger.debug('prev_nd {}'.format(str(prev_nd.shape)))
-                    prev_nd = tf.multiply(prev_nd, masks[i - 1])
-                rnn_output = tf.concat([rnn_output, prev_nd], axis=1)
+            # if label_dependency:
+            #     if i > 0:
+            #         logger.debug('masks unstack {}'.format(str(masks[i - 1].shape)))
+            #         logger.debug('prev_nd {}'.format(str(prev_nd.shape)))
+            #         prev_nd = tf.multiply(prev_nd, masks[i - 1])
+            #     rnn_output = tf.concat([rnn_output, prev_nd], axis=1)
 
             logger.debug('FC Input per sent {}'.format(str(rnn_output.shape)))
 
@@ -260,6 +252,8 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, label_dependency, masks):
             fc1_b = bias_variable([NDclasses, ], name='fc1_b', reuse=fc_reuse)
             fc1_out = tf.matmul(rnn_output, fc1_W) + fc1_b
             y_pre = tf.nn.softmax(fc1_out)  # (?, 7)
+
+            y_pre = tf.expand_dims(y_pre, axis=1)
 
             if is_first:
                 fc_outputs = y_pre
@@ -275,7 +269,8 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, label_dependency, masks):
 
 def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gating, batch_norm, masks):
 
-    x_split = tf.split(x, max_sent, axis=1)
+    # x_split = tf.split(x, max_sent, axis=1)
+    x_split = tf.unstack(x, axis=1)
     sentCNNs = build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm)  # Sentence representation
     logger.debug('sentCNNs input {}'.format(str(sentCNNs.shape)))
     rnn_output = build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, 'context_RNN', 'Bi-LSTM')  # Sentence context
@@ -295,7 +290,7 @@ def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gatin
 
 def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating, batch_norm):
 
-    x_split = tf.split(x, max_sent, axis=1)
+    x_split = tf.unstack(x, axis=1)
 
     sentCNNs_reuse = False
     is_first = True

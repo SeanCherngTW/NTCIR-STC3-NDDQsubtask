@@ -221,7 +221,7 @@ def build_FC(rnn_output, rnn_hiddens, batch_norm, type):
 def init_input(doclen, embsize):
     # doclen = 150, embsize = 256
     with tf.name_scope("inputs"):
-        x = tf.placeholder(tf.float32, [None, max_sent * doclen, embsize], name='input_X')
+        x = tf.placeholder(tf.float32, [None, max_sent, doclen, embsize], name='input_X')
         y = tf.placeholder(tf.float32, [None, DQclasses], name='output_Y')
         bs = tf.placeholder(tf.int32, [], name='batch_size')
         turns = tf.placeholder(tf.int32, [None, ], name='turns')
@@ -232,7 +232,7 @@ def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gatin
 
     using_memory_enhanced = True
 
-    x_split = tf.split(x, max_sent, axis=1)
+    x_split = tf.unstack(x, axis=1)
     sentCNNs = build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm)  # Sentence representation
     logger.debug('sentCNNs input {}'.format(str(sentCNNs.shape)))
     rnn_output = build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, 'context_RNN',
@@ -254,9 +254,7 @@ def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gatin
 
 def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating, batch_norm):
 
-    # print('x shape', x.shape)
-    x_split = tf.split(x, max_sent, axis=1)
-    # print('x_split shape', len(x_split), x_split[0].shape)
+    x_split = tf.unstack(x, axis=1)
 
     sentCNNs_reuse = False
     is_first = True
@@ -300,8 +298,6 @@ def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating
 
         sentCNNs.append(concated)
 
-    # print('sent CNN output shape', len(sentCNNs), sentCNNs[0].shape)
-
     # Prepare Context CNN
     sentCNN_shape = sentCNNs[0].shape
     contextCNNs = []
@@ -309,15 +305,14 @@ def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating
     is_first = True
     for i in range(max_sent):
         if i == 0:
-            start = tf.fill((bs, 1, sentCNN_shape[-1]), 0.0)  # start補零
+            start = tf.fill((bs, 1, sentCNN_shape[-1]), 0.0)
             contextCNNs.append(tf.concat([start, sentCNNs[i], sentCNNs[i + 1]], axis=-1))
         elif i == max_sent - 1:
-            end = tf.fill((bs, 1, sentCNN_shape[-1]), 0.0)  # end 補零
+            end = tf.fill((bs, 1, sentCNN_shape[-1]), 0.0)
             contextCNNs.append(tf.concat([sentCNNs[i - 1], sentCNNs[i], end], axis=-1))
         else:
             contextCNNs.append(tf.concat([sentCNNs[i - 1], sentCNNs[i], sentCNNs[i + 1]], axis=-1))
 
-    # print('context CNN input shape', len(contextCNNs), contextCNNs[0].shape)
     # Context CNNs
     for i, x_context in enumerate(contextCNNs):
         if gating:
