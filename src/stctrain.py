@@ -81,40 +81,40 @@ def start_trainND(
 
             for i in range(0, len_train, batch_size):
                 j = i + batch_size
-                # batchX = trainX[i:j]
-                # batchY = trainY[i:j]
-                # batch_turns = train_turns[i:j]
-                # batch_masks = train_masks[i:j]
-                train_bs = len(trainY[i:j])
-                sess.run(train_op, feed_dict={x: trainX[i:j], y: trainY[i:j], bs: train_bs, turns: train_turns[i:j], masks: train_masks[i:j], num_sent: train_num_sent, })
+                train_bs = batch_size if j < len_train else len_train - i
+                sess.run(train_op, feed_dict={x: trainX[i:j], y: trainY[i:j], bs: train_bs,
+                                              turns: train_turns[i:j], masks: train_masks[i:j], num_sent: train_num_sent, })
 
             # Compute train loss in batch since memory is not enough
             train_loss = 0
             for i in range(0, len_train, batch_size):
                 j = i + batch_size
                 train_bs = len(trainY[i:j])
-                train_loss += sess.run(cost, feed_dict={x: trainX[i:j], y: trainY[i:j], bs: train_bs, turns: train_turns[i:j], masks: train_masks[i:j], num_sent: train_num_sent, })
+                train_loss += sess.run(cost, feed_dict={x: trainX[i:j], y: trainY[i:j], bs: train_bs,
+                                                        turns: train_turns[i:j], masks: train_masks[i:j], num_sent: train_num_sent, })
 
             # Compute dev loss in batch since memory is not enough
             dev_loss = 0
             for i in range(0, len_dev, batch_size):
                 j = i + batch_size
                 dev_bs = len(devND[i:j])
-                dev_loss += sess.run(cost, feed_dict={x: devX[i:j], y: devND[i:j], bs: dev_bs, turns: dev_turns[i:j], masks: dev_masks[i:j], num_sent: dev_num_sent})
+                dev_loss += sess.run(cost, feed_dict={x: devX[i:j], y: devND[i:j], bs: dev_bs,
+                                                      turns: dev_turns[i:j], masks: dev_masks[i:j], num_sent: dev_num_sent})
 
             train_losses.append(train_loss)
             dev_losses.append(dev_loss)
 
-            if dev_loss > min_dev_loss:
+            if dev_loss >= min_dev_loss:
                 current_early_stoping += 1
             else:
                 current_early_stoping = 0
                 min_dev_loss = dev_loss
 
             if current_early_stoping >= early_stopping or (e + 1) == epoch:
-                pred_dev = sess.run(pred, feed_dict={x: devX, y: devND, bs: len_dev, turns: dev_turns, masks: dev_masks})
+                pred_dev = sess.run(pred, feed_dict={x: devX, bs: len_dev, turns: dev_turns, masks: dev_masks})
                 RNSS, JSD = STCE.nugget_evaluation(pred_dev, devND, dev_turns)
-                args = [method.__name__, i + 1, gating, bn, filter_size_str, hiddens, num_filters_str, "{:.5f}".format(JSD), "{:.5f}".format(RNSS)]
+                args = [method.__name__, i + 1, gating, bn, filter_size_str, hiddens,
+                        num_filters_str, "{:.5f}".format(JSD), "{:.5f}".format(RNSS)]
                 argstr = '|'.join(map(str, args))
                 logger.info(argstr)
                 break
@@ -132,7 +132,7 @@ def start_trainND(
 
 def start_trainDQ(
     trainX, trainY, train_turns,
-    devX, devDQ, dev_turns, testX, test_turns,
+    devX, devY, dev_turns, testX, test_turns,
     scoretype, epoch, early_stopping, batch_size, lr, kp, hiddens, Fsize,
     Fnum, gating, bn, method, evaluate,
 ):
@@ -142,16 +142,12 @@ def start_trainDQ(
 
     tf.reset_default_graph()
 
-    x, y, bs, turns, nd = DQ.init_input(doclen, embsize)
-    pred = method(x, bs, turns, kp, hiddens, Fsize, Fnum, gating, bn, nd)
+    x, y, bs, turns, num_dialog = DQ.init_input(doclen, embsize)
+    pred = method(x, bs, turns, kp, hiddens, Fsize, Fnum, gating, bn)
     with tf.name_scope('loss'):
-        cost = tf.reduce_mean(-tf.reduce_sum(y * tf.log(tf.clip_by_value(pred, 1e-10, 1.0))))
+        cost = tf.divide(-tf.reduce_sum(y * tf.log(tf.clip_by_value(pred, 1e-10, 1.0))), tf.cast(num_dialog, tf.float32))
     with tf.name_scope('train'):
         train_op = tf.train.AdamOptimizer(lr).minimize(cost)
-
-    len_trainX = len(trainX)
-    dev_batch = len(devX)
-
     pred_test = None
 
     if gating:
@@ -166,7 +162,8 @@ def start_trainDQ(
     train_losses = []
     dev_losses = []
 
-    train_len = len(trainX)
+    len_train = len(trainX)
+    len_dev = len(devX)
 
     filter_size_str = '_'.join(list(map(str, Fsize)))
     num_filters_str = '_'.join(list(map(str, Fnum)))
@@ -174,34 +171,49 @@ def start_trainDQ(
     with tf.Session(config=config).as_default() as sess:
         sess.run(tf.global_variables_initializer())
         writer = tf.summary.FileWriter(tensorboard_path, sess.graph)
-        for i in range(epoch):
+        for e in range(epoch):
             merge = list(zip(trainX, trainY, train_turns))
             random.shuffle(merge)
             trainX, trainY, train_turns = zip(*merge)
             del merge
 
-            for start_idx in range(0, len_trainX, batch_size):
-                end_idx = start_idx + batch_size
-                batchX = trainX[start_idx:end_idx]
-                batchY = trainY[start_idx:end_idx]
-                batch_turns = train_turns[start_idx:end_idx]
-                train_bs = len(batchY)
-                sess.run(train_op, feed_dict={x: batchX, y: batchY, bs: train_bs, turns: batch_turns, })
-            # train_loss = sess.run(cost, feed_dict={x: trainX, y: trainY, bs: train_len, turns: train_turns})
-            # dev_loss = sess.run(cost, feed_dict={x: devX, y: devDQ, bs: dev_batch, turns: dev_turns})
-            # train_losses.append(train_loss)
-            # dev_losses.append(dev_loss)
+            for i in range(0, len_train, batch_size):
+                j = i + batch_size
+                train_bs = batch_size if j < len_train else len_train - i
+                sess.run(train_op, feed_dict={x: trainX[i:j], y: trainY[i:j], bs: train_bs,
+                                              turns: train_turns[i:j], num_dialog: len_train})
 
-            # if dev_loss > min_dev_loss:
-            #     current_early_stoping += 1
-            # else:
-            #     current_early_stoping = 0
-            #     min_dev_loss = dev_loss
+            # Compute train loss in batch since memory is not enough
+            train_loss = 0
+            for i in range(0, len_train, batch_size):
+                j = i + batch_size
+                train_bs = batch_size if j < len_train else len_train - i
+                train_loss += sess.run(cost, feed_dict={x: trainX[i:j], y: trainY[i:j], bs: train_bs,
+                                                        turns: train_turns[i:j], num_dialog: len_train})
+                # print(i, j, train_loss)
 
-            if current_early_stoping >= early_stopping or (i + 1) == epoch:
-                pred_dev = sess.run(pred, feed_dict={x: devX, bs: dev_batch, turns: dev_turns, })
-                NMD, RSNOD = STCE.quality_evaluation(pred_dev, devDQ)
-                args = [method.__name__, i + 1, gating, bn, filter_size_str, hiddens,
+            # Compute dev loss in batch since memory is not enough
+            dev_loss = 0
+            for i in range(0, len_dev, batch_size):
+                j = i + batch_size
+                dev_bs = batch_size if j < len_dev else len_dev - i
+                dev_loss += sess.run(cost, feed_dict={x: devX[i:j], y: devY[i:j], bs: dev_bs,
+                                                      turns: dev_turns[i:j], num_dialog: len_dev})
+                # print(i, j, dev_loss)
+
+            train_losses.append(train_loss)
+            dev_losses.append(dev_loss)
+
+            if dev_loss >= min_dev_loss:
+                current_early_stoping += 1
+            else:
+                current_early_stoping = 0
+                min_dev_loss = dev_loss
+
+            if current_early_stoping >= early_stopping or (e + 1) == epoch:
+                pred_dev = sess.run(pred, feed_dict={x: devX, bs: len_dev, turns: dev_turns, })
+                NMD, RSNOD = STCE.quality_evaluation(pred_dev, devY)
+                args = [method.__name__, e + 1, gating, bn, filter_size_str, hiddens,
                         num_filters_str, "{:.5f}".format(NMD), "{:.5f}".format(RSNOD)]
                 argstr = '|'.join(map(str, args))
                 logger.info(argstr)

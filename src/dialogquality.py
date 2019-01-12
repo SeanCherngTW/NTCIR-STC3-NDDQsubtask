@@ -15,6 +15,7 @@ from gensim.models.keyedvectors import KeyedVectors
 doclen = param.doclen
 embsize = param.embsize
 max_sent = param.max_sent
+NDclasses = param.NDclasses
 DQclasses = param.DQclasses
 logger = logging.getLogger('DQ task')
 tf.logging.set_verbosity(tf.logging.ERROR)
@@ -63,12 +64,13 @@ def maxpool(h, pool_size, strides, name, reuse=False):
         )
 
 
-def build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm):
+def build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm, ):
     is_first = True
     sentCNNs_reuse = False
 
     with tf.name_scope('SentCNN'):
         for i, x_sent in enumerate(x_split):
+            logger.debug('sentCNN input shape {}'.format(x_sent.shape))
             # print('CNN input shape', x_sent.shape)
 
             if i % 2 == 0:  # customer
@@ -103,12 +105,16 @@ def build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_nor
                 sentCNN_poolB = maxpool(sentCNN_convB, doclen, 1, 'sentCNN_poolB', sentCNNs_reuse)
                 concated = tf.concat([sentCNN_poolA, sentCNN_poolB, speaker], axis=-1, name='sentCNN_concated')
 
+            logger.debug('sentCNN output shape {}'.format(concated.shape))
+
             if is_first:
                 sentCNNs = concated
                 sentCNNs_reuse = True
                 is_first = False
             else:
                 sentCNNs = tf.concat([sentCNNs, concated], axis=1, name='sentCNN_concate_sent')
+
+        logger.debug('sentCNNs output shape {}'.format(sentCNNs.shape))
     return sentCNNs
 
 
@@ -225,7 +231,9 @@ def init_input(doclen, embsize):
         y = tf.placeholder(tf.float32, [None, DQclasses], name='output_Y')
         bs = tf.placeholder(tf.int32, [], name='batch_size')
         turns = tf.placeholder(tf.int32, [None, ], name='turns')
-    return x, y, bs, turns
+        num_dialog = tf.placeholder(tf.int32, [], name='num_dialog')
+        nd = tf.placeholder(tf.float32, [None, max_sent, NDclasses])
+    return x, y, bs, turns, num_dialog
 
 
 def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gating, batch_norm):
@@ -253,68 +261,92 @@ def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gatin
 
 
 def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating, batch_norm):
-
+    using_memory_enhanced = True
     x_split = tf.unstack(x, axis=1)
 
-    sentCNNs_reuse = False
-    is_first = True
-    sentCNNs = []
+    sentCNNs = build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm)  # (?, 7, filter_num)
+    sentCNNs = tf.unstack(sentCNNs, axis=1)  # (?, filter_num) * 7
 
-    # Sentence CNNs
-    for i, x_sent in enumerate(x_split):
-        if i % 2 == 0:  # customer
-            speaker = tf.fill((bs, 1, 1), 0.0)
-        else:  # helpdesk
-            speaker = tf.fill((bs, 1, 1), 1.0)
-
-        if gating:
-            for layer, Fnum in enumerate(num_filters):
-                sentCNN_convA = conv1d(x_sent, filter_size[0], Fnum, 'sentCNN_convA{}'.format(layer), sentCNNs_reuse)
-                sentCNN_convB = conv1d(x_sent, filter_size[1], Fnum, 'sentCNN_convB{}'.format(layer), sentCNNs_reuse)
-                x_sent = tf.multiply(sentCNN_convA, tf.nn.sigmoid(sentCNN_convB), name='gating{}'.format(layer))
-                if batch_norm:
-                    x_sent = tf.layers.batch_normalization(x_sent)
-
-            sentCNN_pool = maxpool(x_sent, doclen, 1, 'sentCNN_pool', sentCNNs_reuse)
-            concated = tf.concat([sentCNN_pool, speaker], axis=-1)
-
-        else:
-            sentCNN_convA = x_sent
-            sentCNN_convB = x_sent
-            for layer, Fnum in enumerate(num_filters):
-                sentCNN_convA = conv1d(sentCNN_convA, filter_size[0], Fnum, 'sentCNN_convA{}'.format(layer), sentCNNs_reuse)
-                sentCNN_convB = conv1d(sentCNN_convB, filter_size[1], Fnum, 'sentCNN_convB{}'.format(layer), sentCNNs_reuse)
-                if batch_norm:
-                    sentCNN_convA = tf.layers.batch_normalization(sentCNN_convA)
-                    sentCNN_convB = tf.layers.batch_normalization(sentCNN_convB)
-
-            sentCNN_poolA = maxpool(sentCNN_convA, doclen, 1, 'sentCNN_poolA', sentCNNs_reuse)
-            sentCNN_poolB = maxpool(sentCNN_convB, doclen, 1, 'sentCNN_poolB', sentCNNs_reuse)
-            concated = tf.concat([sentCNN_poolA, sentCNN_poolB, speaker], axis=-1)
-
-        if is_first:
-            sentCNNs_reuse = True
-            is_first = False
-
-        sentCNNs.append(concated)
-
-    # Prepare Context CNN
-    sentCNN_shape = sentCNNs[0].shape
-    contextCNNs = []
+    _contextCNNs = []
     contextCNNs_reuse = False
     is_first = True
     for i in range(max_sent):
         if i == 0:
-            start = tf.fill((bs, 1, sentCNN_shape[-1]), 0.0)
-            contextCNNs.append(tf.concat([start, sentCNNs[i], sentCNNs[i + 1]], axis=-1))
+            start = tf.fill((bs, sentCNNs[i].shape[-1]), 0.0)
+            _contextCNNs.append(tf.concat([start, sentCNNs[i], sentCNNs[i + 1]], axis=-1))
         elif i == max_sent - 1:
-            end = tf.fill((bs, 1, sentCNN_shape[-1]), 0.0)
-            contextCNNs.append(tf.concat([sentCNNs[i - 1], sentCNNs[i], end], axis=-1))
+            end = tf.fill((bs, sentCNNs[i].shape[-1]), 0.0)
+            _contextCNNs.append(tf.concat([sentCNNs[i - 1], sentCNNs[i], end], axis=-1))
         else:
-            contextCNNs.append(tf.concat([sentCNNs[i - 1], sentCNNs[i], sentCNNs[i + 1]], axis=-1))
+            _contextCNNs.append(tf.concat([sentCNNs[i - 1], sentCNNs[i], sentCNNs[i + 1]], axis=-1))
+
+     # contextCNNs = (?, 3, filter_num) * 7
+
+    for i in range(max_sent):
+        logger.debug('_contextCNNs shape from {}'.format(_contextCNNs[i].shape))
+        _, filters = _contextCNNs[i].shape
+        _contextCNNs[i] = tf.reshape(_contextCNNs[i], [-1, 1, filters])
+        logger.debug('_contextCNNs shape to {}'.format(_contextCNNs[i].shape))
+
+    # sentCNNs_reuse = False
+    # is_first = True
+    # sentCNNs = []
+
+    # # Sentence CNNs
+    # for i, x_sent in enumerate(x_split):
+    #     if i % 2 == 0:  # customer
+    #         speaker = tf.fill((bs, 1, 1), 0.0)
+    #     else:  # helpdesk
+    #         speaker = tf.fill((bs, 1, 1), 1.0)
+
+    #     if gating:
+    #         for layer, Fnum in enumerate(num_filters):
+    #             sentCNN_convA = conv1d(x_sent, filter_size[0], Fnum, 'sentCNN_convA{}'.format(layer), sentCNNs_reuse)
+    #             sentCNN_convB = conv1d(x_sent, filter_size[1], Fnum, 'sentCNN_convB{}'.format(layer), sentCNNs_reuse)
+    #             x_sent = tf.multiply(sentCNN_convA, tf.nn.sigmoid(sentCNN_convB), name='gating{}'.format(layer))
+    #             if batch_norm:
+    #                 x_sent = tf.layers.batch_normalization(x_sent)
+
+    #         sentCNN_pool = maxpool(x_sent, doclen, 1, 'sentCNN_pool', sentCNNs_reuse)
+    #         concated = tf.concat([sentCNN_pool, speaker], axis=-1)
+
+    #     else:
+    #         sentCNN_convA = x_sent
+    #         sentCNN_convB = x_sent
+    #         for layer, Fnum in enumerate(num_filters):
+    #             sentCNN_convA = conv1d(sentCNN_convA, filter_size[0], Fnum, 'sentCNN_convA{}'.format(layer), sentCNNs_reuse)
+    #             sentCNN_convB = conv1d(sentCNN_convB, filter_size[1], Fnum, 'sentCNN_convB{}'.format(layer), sentCNNs_reuse)
+    #             if batch_norm:
+    #                 sentCNN_convA = tf.layers.batch_normalization(sentCNN_convA)
+    #                 sentCNN_convB = tf.layers.batch_normalization(sentCNN_convB)
+
+    #         sentCNN_poolA = maxpool(sentCNN_convA, doclen, 1, 'sentCNN_poolA', sentCNNs_reuse)
+    #         sentCNN_poolB = maxpool(sentCNN_convB, doclen, 1, 'sentCNN_poolB', sentCNNs_reuse)
+    #         concated = tf.concat([sentCNN_poolA, sentCNN_poolB, speaker], axis=-1)
+
+    #     if is_first:
+    #         sentCNNs_reuse = True
+    #         is_first = False
+
+    #     sentCNNs.append(concated)
+
+    # Prepare Context CNN
+    # sentCNN_shape = sentCNNs[0].shape
+    # contextCNNs = []
+    # contextCNNs_reuse = False
+    # is_first = True
+    # for i in range(max_sent):
+    #     if i == 0:
+    #         start = tf.fill((bs, 1, sentCNN_shape[-1]), 0.0)
+    #         contextCNNs.append(tf.concat([start, sentCNNs[i], sentCNNs[i + 1]], axis=-1))
+    #     elif i == max_sent - 1:
+    #         end = tf.fill((bs, 1, sentCNN_shape[-1]), 0.0)
+    #         contextCNNs.append(tf.concat([sentCNNs[i - 1], sentCNNs[i], end], axis=-1))
+    #     else:
+    #         contextCNNs.append(tf.concat([sentCNNs[i - 1], sentCNNs[i], sentCNNs[i + 1]], axis=-1))
 
     # Context CNNs
-    for i, x_context in enumerate(contextCNNs):
+    for i, x_context in enumerate(_contextCNNs):
         if gating:
             for layer, Fnum in enumerate(num_filters):
                 contextCNN_convA = conv1d(x_context, filter_size[0], Fnum, 'contextCNN_convA{}'.format(layer), contextCNNs_reuse)
@@ -352,6 +384,13 @@ def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating
             contextCNNs = tf.concat([contextCNNs, concated], axis=1)
         # features = concated.shape[-1]
         # contextCNNs[i] = tf.reshape(concated, [-1, features])
+
+    memory_rnn_type = 'Bi-GRU'
+    input_memory = build_RNN(contextCNNs, bs, turns, fc_hiddens, batch_norm,
+                             'input_memory', memory_rnn_type, using_memory_enhanced)
+    output_memory = build_RNN(contextCNNs, bs, turns, fc_hiddens, batch_norm,
+                              'output_memory', memory_rnn_type, using_memory_enhanced)
+    contextCNNs = memory_enhanced(contextCNNs, input_memory, output_memory)
 
     # print('context CNN output shape', contextCNNs.shape)
     batch, num_sent, num_features = contextCNNs.shape
