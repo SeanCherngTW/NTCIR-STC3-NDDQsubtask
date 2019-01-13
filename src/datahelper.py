@@ -414,6 +414,8 @@ class DataHelper:
         all_dialogs = []
 
         for nd, dqa, dqs, dqe, turn, _id in zip(testND, testDQA, testDQS, testDQE, turns, IDs):  # p is (49, )
+            if nd.shape == (390, 7, 7):
+                nd = nd.reshape(390, 49)
             sents_nuggets = np.array_split(nd, self.max_sent)
             dialog_json = {}
             quality_json = {}
@@ -441,6 +443,8 @@ class DataHelper:
 
             # Nugget Detection
             for i, sent_nugget in enumerate(sents_nuggets):  # for each sentence
+                sent_nugget = sent_nugget.reshape(-1)
+
                 if i == turn:
                     break
 

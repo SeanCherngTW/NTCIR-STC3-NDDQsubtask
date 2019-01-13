@@ -32,14 +32,14 @@ def start_trainND(
         trainX, trainY, train_turns, train_masks,
         devX, devND, dev_turns, dev_masks,
         testX, test_turns, test_masks,
-        epoch, early_stopping, batch_size, lr, kp, hiddens, Fsize, Fnum, gating, bn, method, evaluate
+        epoch, early_stopping, batch_size, lr, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, method, evaluate
 ):
     assert method.__name__ in ['CNNRNN', 'CNNCNN']
 
     tf.reset_default_graph()
 
     x, y, bs, turns, masks, num_sent = ND.init_input(doclen, embsize)
-    pred = method(x, bs, turns, kp, hiddens, Fsize, Fnum, gating, bn, masks)
+    pred = method(x, bs, turns, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, masks)
     with tf.name_scope('loss'):
         cost = ND.loss_function(pred, y, batch_size, num_sent, masks)
     with tf.name_scope('train'):
@@ -113,8 +113,8 @@ def start_trainND(
             if current_early_stoping >= early_stopping or (e + 1) == epoch:
                 pred_dev = sess.run(pred, feed_dict={x: devX, bs: len_dev, turns: dev_turns, masks: dev_masks})
                 RNSS, JSD = STCE.nugget_evaluation(pred_dev, devND, dev_turns)
-                args = [method.__name__, i + 1, gating, bn, filter_size_str, hiddens,
-                        num_filters_str, "{:.5f}".format(JSD), "{:.5f}".format(RNSS)]
+                args = [method.__name__, e + 1, gating, bn, filter_size_str, hiddens,
+                        num_filters_str, kp, "{:.5f}".format(JSD), "{:.5f}".format(RNSS)]
                 argstr = '|'.join(map(str, args))
                 logger.info(argstr)
                 break

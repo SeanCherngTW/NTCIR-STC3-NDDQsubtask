@@ -238,7 +238,7 @@ def init_input(doclen, embsize):
 
 def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gating, batch_norm):
 
-    using_memory_enhanced = True
+    using_memory_enhanced = False
 
     x_split = tf.unstack(x, axis=1)
     sentCNNs = build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm)  # Sentence representation
@@ -248,12 +248,12 @@ def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gatin
     logger.debug('rnn_output input {}'.format(str(rnn_output.shape)))
 
     # Memory enhanced structure
-    memory_rnn_type = 'Bi-GRU'
-    input_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm,
-                             'input_memory', memory_rnn_type, using_memory_enhanced)
-    output_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm,
-                              'output_memory', memory_rnn_type, using_memory_enhanced)
-    rnn_output = memory_enhanced(rnn_output, input_memory, output_memory)
+    # memory_rnn_type = 'Bi-GRU'
+    # input_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm,
+    #                          'input_memory', memory_rnn_type, using_memory_enhanced)
+    # output_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm,
+    #                           'output_memory', memory_rnn_type, using_memory_enhanced)
+    # rnn_output = memory_enhanced(rnn_output, input_memory, output_memory)
 
     y_pre = build_FC(rnn_output, rnn_hiddens, batch_norm, 'last')
 
@@ -261,7 +261,7 @@ def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gatin
 
 
 def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating, batch_norm):
-    using_memory_enhanced = True
+    using_memory_enhanced = False
     x_split = tf.unstack(x, axis=1)
 
     sentCNNs = build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm)  # (?, 7, filter_num)
@@ -385,12 +385,12 @@ def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating
         # features = concated.shape[-1]
         # contextCNNs[i] = tf.reshape(concated, [-1, features])
 
-    memory_rnn_type = 'Bi-GRU'
-    input_memory = build_RNN(contextCNNs, bs, turns, fc_hiddens, batch_norm,
-                             'input_memory', memory_rnn_type, using_memory_enhanced)
-    output_memory = build_RNN(contextCNNs, bs, turns, fc_hiddens, batch_norm,
-                              'output_memory', memory_rnn_type, using_memory_enhanced)
-    contextCNNs = memory_enhanced(contextCNNs, input_memory, output_memory)
+    # memory_rnn_type = 'Bi-GRU'
+    # input_memory = build_RNN(contextCNNs, bs, turns, fc_hiddens, batch_norm,
+    #                          'input_memory', memory_rnn_type, using_memory_enhanced)
+    # output_memory = build_RNN(contextCNNs, bs, turns, fc_hiddens, batch_norm,
+    #                           'output_memory', memory_rnn_type, using_memory_enhanced)
+    # contextCNNs = memory_enhanced(contextCNNs, input_memory, output_memory)
 
     # print('context CNN output shape', contextCNNs.shape)
     batch, num_sent, num_features = contextCNNs.shape
