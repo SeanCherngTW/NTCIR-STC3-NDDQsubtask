@@ -6,5 +6,5 @@ src/logs
 src/models
 src/S2V/s2v_models
 src/__MACOSX
-src/old_works/
+old_works/
 src/tmp/
