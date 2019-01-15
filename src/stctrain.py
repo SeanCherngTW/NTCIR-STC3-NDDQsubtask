@@ -137,7 +137,7 @@ def start_trainDQ(
     trainX, trainY, train_turns,
     devX, devY, dev_turns, testX, test_turns,
     scoretype, epoch, early_stopping, batch_size, lr, kp, hiddens, Fsize,
-    Fnum, gating, bn, method, evaluate, memory_rnn_type=None,
+    Fnum, gating, bn, num_layers, method, evaluate, memory_rnn_type=None,
 ):
 
     assert method.__name__ in ['CNNRNN', 'CNNCNN']
@@ -146,7 +146,7 @@ def start_trainDQ(
     tf.reset_default_graph()
 
     x, y, bs, turns, num_dialog = DQ.init_input(doclen, embsize)
-    pred = method(x, bs, turns, kp, hiddens, Fsize, Fnum, gating, bn, memory_rnn_type)
+    pred = method(x, bs, turns, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, memory_rnn_type)
     with tf.name_scope('loss'):
         cost = tf.divide(-tf.reduce_sum(y * tf.log(tf.clip_by_value(pred, 1e-10, 1.0))), tf.cast(num_dialog, tf.float32))
     with tf.name_scope('train'):
@@ -238,40 +238,36 @@ def start_trainDQ_NDF(
     devX, devDQ, dev_turns, devND,
     testX, test_turns, testND,
     scoretype, epoch, early_stopping, batch_size, lr, kp, hiddens, Fsize,
-    Fnum, gating, bn, method, evaluate
+    Fnum, gating, bn, num_layers, method, evaluate, memory_rnn_type=None,
 ):
 
     assert method.__name__ in ['CNNRNN', 'CNNCNN']
     assert scoretype in ['DQA', 'DQS', 'DQE']
 
     tf.reset_default_graph()
-    eps = 1e-10
 
-    x, y, bs, turns, nd = DQNDF.init_input(doclen, embsize)
-    pred = method(x, bs, turns, nd, kp, hiddens, Fsize, Fnum, gating, bn)
-
+    x, y, bs, turns, num_dialog = DQ.init_input(doclen, embsize)
+    pred = method(x, bs, turns, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, memory_rnn_type)
     with tf.name_scope('loss'):
-         # dont need softmax in NN output
-        cost = tf.reduce_mean(-tf.reduce_sum(y * tf.log(tf.clip_by_value(pred, 1e-10, 1.0))))
+        cost = tf.divide(-tf.reduce_sum(y * tf.log(tf.clip_by_value(pred, 1e-10, 1.0))), tf.cast(num_dialog, tf.float32))
     with tf.name_scope('train'):
         train_op = tf.train.AdamOptimizer(lr).minimize(cost)
-
-    len_trainX = len(trainX)
-    dev_batch = len(devX)
-
     pred_test = None
 
     if gating:
         method_info = '{}-stack{}-gating'.format(len(Fnum), method.__name__)
     else:
         method_info = '{}-stack{}'.format(len(Fnum), method.__name__)
-
-    tensorboard_path = "logs/{}/".format(method_info)
+    tensorboard_path = "logs/DQ-{}/".format(method_info)
     if os.path.isdir(tensorboard_path):
         shutil.rmtree(tensorboard_path)
 
-    min_NMD = 1
-    min_RSNOD = 1
+    min_dev_loss = sys.maxsize
+    train_losses = []
+    dev_losses = []
+
+    len_train = len(trainX)
+    len_dev = len(devX)
 
     filter_size_str = '_'.join(list(map(str, Fsize)))
     num_filters_str = '_'.join(list(map(str, Fnum)))
@@ -283,43 +279,56 @@ def start_trainDQ_NDF(
             merge = list(zip(trainX, trainY, train_turns))
             random.shuffle(merge)
             trainX, trainY, train_turns = zip(*merge)
+            del merge
 
-            for start_idx in range(0, len_trainX, batch_size):
-                end_idx = start_idx + batch_size
-                if end_idx > len_trainX:
-                    break
-                batchX = trainX[start_idx:end_idx]
-                batchY = trainY[start_idx:end_idx]
-                batch_turns = train_turns[start_idx:end_idx]
-                batch_nd = trainND[start_idx:end_idx]
+            for i in range(0, len_train, batch_size):
+                j = i + batch_size
+                train_bs = batch_size if j < len_train else len_train - i
+                sess.run(train_op, feed_dict={x: trainX[i:j], y: trainY[i:j], bs: train_bs,
+                                              turns: train_turns[i:j], num_dialog: len_train, nd: trainND[i:j]})
 
-                train_bs = len(batchY)
-                sess.run(train_op, feed_dict={x: batchX, y: batchY, bs: train_bs, turns: batch_turns, nd: batch_nd, })
+            # Compute train loss in batch since memory is not enough
+            train_loss = 0
+            for i in range(0, len_train, batch_size):
+                j = i + batch_size
+                train_bs = batch_size if j < len_train else len_train - i
+                train_loss += sess.run(cost, feed_dict={x: trainX[i:j], y: trainY[i:j], bs: train_bs, turns: train_turns[i:j], num_dialog: len_train, nd: trainND[i:j]})
 
-            pred_dev = sess.run(pred, feed_dict={x: devX, bs: dev_batch, turns: dev_turns, nd: devND, })
-            NMD, RSNOD = STCE.quality_evaluation(pred_dev, devDQ)
+            # Compute dev loss in batch since memory is not enough
+            dev_loss = 0
+            for i in range(0, len_dev, batch_size):
+                j = i + batch_size
+                dev_bs = batch_size if j < len_dev else len_dev - i
+                dev_loss += sess.run(cost, feed_dict={x: devX[i:j], y: devY[i:j], bs: dev_bs, turns: dev_turns[i:j], num_dialog: len_devm nd: devND[i:j]})
 
-            if NMD > min_NMD and RSNOD > min_RSNOD:
+            train_losses.append(train_loss)
+            dev_losses.append(dev_loss)
+
+            if dev_loss >= min_dev_loss:
                 current_early_stoping += 1
             else:
                 current_early_stoping = 0
-                min_NMD = NMD if NMD < min_NMD else min_NMD
-                min_RSNOD = RSNOD if RSNOD < min_RSNOD else min_RSNOD
-
-            args = [method.__name__, e + 1, gating, bn, filter_size_str, hiddens,
-                    num_filters_str, "{:.5f}".format(NMD), "{:.5f}".format(RSNOD)]
-            argstr = ','.join(map(str, args))
-            logger.debug(argstr)
+                min_dev_loss = dev_loss
+                saver = tf.train.Saver(tf.trainable_variables())
+                saver.save(sess, './tmp/best_params')
 
             if current_early_stoping >= early_stopping or (e + 1) == epoch:
+                assert dev_losses.index(min(dev_losses)) == len(dev_losses) - early_stopping - 1, 'Early Stop Error'
+                saver.restore(sess, './tmp/best_params')
+                pred_dev = sess.run(pred, feed_dict={x: devX, bs: len_dev, turns: dev_turns, })
+                NMD, RSNOD = STCE.quality_evaluation(pred_dev, devY)
+                args = [method.__name__, e + 1, gating, bn, filter_size_str, hiddens,
+                        num_filters_str, "{:.5f}".format(NMD), "{:.5f}".format(RSNOD)]
+                argstr = '|'.join(map(str, args))
                 logger.info(argstr)
                 break
 
         if evaluate:
-            saver = tf.train.Saver()
-            pred_test = sess.run(pred, feed_dict={x: testX, bs: len(testX), turns: test_turns, nd: testND, })
-            modelname = [method.__name__, e + 1, len(Fnum), batch_size, gating, bn, filter_size_str, hiddens, num_filters_str]
-            modelpath = 'models/{}/{}.ckpt'.format(scoretype, '-'.join(map(str, modelname)))
-            saver.save(sess, modelpath)
-            print('{} is saved\n'.format(modelpath))
-            return pred_test
+            pred_test = sess.run(pred, feed_dict={x: testX, bs: len(testX), turns: test_turns, nd: testND[i:j]})
+            # saver = tf.train.Saver()
+            # modelname = [method.__name__, e + 1, len(Fnum), batch_size, gating, filter_size_str, hiddens, num_filters_str]
+            # modelpath = 'models/ND/{}.ckpt'.format('-'.join(map(str, modelname)))
+            # saver.save(sess, modelpath)
+            # print('{} is saved\n'.format(modelpath))
+
+        return pred_test, train_losses, dev_losses

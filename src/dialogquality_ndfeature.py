@@ -25,7 +25,6 @@ def weight_variable(shape, name, reuse=False):
     with tf.variable_scope("", reuse=reuse):
         return tf.get_variable(
             shape=shape,
-            # initializer=tf.contrib.layers.xavier_initializer(),
             initializer=tf.contrib.keras.initializers.he_normal(),
             name=name,
         )
@@ -64,7 +63,7 @@ def maxpool(h, pool_size, strides, name, reuse=False):
         )
 
 
-def build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm, ):
+def build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm, nd):
     is_first = True
     sentCNNs_reuse = False
     nd = tf.unstack(nd, axis=1)
@@ -119,28 +118,41 @@ def build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_nor
     return sentCNNs
 
 
-def build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, name, rnn_type):
-    with tf.name_scope(name):
+def build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, name, rnn_type, keep_prob, num_layers):
+    def _get_cell(rnn_type, rnn_hiddens):
+        assert rnn_type in ['Bi-LSTM', 'Bi-GRU']
         if rnn_type == 'Bi-LSTM':
-            with tf.name_scope('Fw-LSTM'):
-                fw_cell = tf.contrib.rnn.BasicLSTMCell(rnn_hiddens, forget_bias=1.0)
-            with tf.name_scope('Bw-LSTM'):
-                bw_cell = tf.contrib.rnn.BasicLSTMCell(rnn_hiddens, forget_bias=1.0)
-
-        elif rnn_type == 'Bi-GRU':
-            with tf.name_scope('Fw-GRU'):
-                fw_cell = tf.contrib.rnn.GRUCell(rnn_hiddens)
-            with tf.name_scope('Bw-GRU'):
-                bw_cell = tf.contrib.rnn.GRUCell(rnn_hiddens)
+            return tf.contrib.rnn.BasicLSTMCell(rnn_hiddens, forget_bias=1.0)
         else:
-            raise NameError('rnn_type must be Bi-LSTM or Bi-GRU')
+            return tf.contrib.rnn.GRUCell(rnn_hiddens)
 
-        init_state_fw = fw_cell.zero_state(bs, tf.float32)
-        init_state_bw = bw_cell.zero_state(bs, tf.float32)
+    fw_cells = []
+    bw_cells = []
+    with tf.name_scope(name):
+        with tf.name_scope(rnn_type):
+            for _ in range(num_layers):
+                fw_cell = tf.contrib.rnn.DropoutWrapper(
+                    _get_cell(rnn_type, rnn_hiddens),
+                    input_keep_prob=keep_prob,
+                    output_keep_prob=keep_prob,
+                )
+                bw_cell = tf.contrib.rnn.DropoutWrapper(
+                    _get_cell(rnn_type, rnn_hiddens),
+                    input_keep_prob=keep_prob,
+                    output_keep_prob=keep_prob,
+                )
+
+                fw_cells.append(fw_cell)
+                bw_cells.append(bw_cell)
+
+        fw_cells = tf.contrib.rnn.MultiRNNCell(fw_cells)
+        bw_cells = tf.contrib.rnn.MultiRNNCell(bw_cells)
+        init_state_fw = fw_cells.zero_state(bs, tf.float32)
+        init_state_bw = bw_cells.zero_state(bs, tf.float32)
 
         (output_fw, output_bw), (final_state_fw, final_state_bw) = tf.nn.bidirectional_dynamic_rnn(
-            cell_fw=fw_cell,
-            cell_bw=bw_cell,
+            cell_fw=fw_cells,
+            cell_bw=bw_cells,
             inputs=sentCNNs,
             sequence_length=turns,
             initial_state_fw=init_state_fw,
@@ -206,16 +218,14 @@ def build_FC(rnn_output, rnn_hiddens, batch_norm, type):
 
     logger.debug('FC Input per sent {}'.format(str(rnn_output.shape)))
     with tf.name_scope('FCLayer'):
-        fc_reuse = False
         if batch_norm:
             rnn_output = tf.layers.batch_normalization(rnn_output)
 
-        fc1_W = weight_variable([rnn_hiddens, DQclasses], name='fc1_W', reuse=fc_reuse)
-        fc1_b = bias_variable([DQclasses, ], name='fc1_b', reuse=fc_reuse)
+        fc1_W = weight_variable([rnn_hiddens, DQclasses], name='fc1_W')
+        fc1_b = bias_variable([DQclasses, ], name='fc1_b')
         fc1_out = tf.matmul(rnn_output, fc1_W) + fc1_b
-
-        # y_pre = fc1_out
         y_pre = tf.nn.softmax(fc1_out)
+
     logger.debug('FC output y_pre {}'.format(str(y_pre.shape)))
     return y_pre
 
@@ -228,23 +238,21 @@ def init_input(doclen, embsize):
         bs = tf.placeholder(tf.int32, [], name='batch_size')
         turns = tf.placeholder(tf.int32, [None, ], name='turns')
         num_dialog = tf.placeholder(tf.int32, [], name='num_dialog')
-        nd = tf.placeholder(tf.float32, [None, max_sent, NDclasses])
-    return x, y, bs, turns, num_dialog, c
+        nd = tf.placeholder(tf.float32, [None, max_sent, NDclasses], name='nd')
+    return x, y, bs, turns, num_dialog, nd
 
 
-def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gating, batch_norm, nd, memory_rnn_type=None):
-
+def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gating, batch_norm, num_layers, nd, memory_rnn_type=None):
     x_split = tf.unstack(x, axis=1)
-    sentCNNs = build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm)  # Sentence representation
+    sentCNNs = build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm, nd)  # Sentence representation
     logger.debug('sentCNNs input {}'.format(str(sentCNNs.shape)))
-    rnn_output = build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, 'context_RNN',
-                           'Bi-LSTM')
+    rnn_output = build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, 'context_RNN', 'Bi-LSTM', keep_prob=1, num_layers=num_layers)
     logger.debug('rnn_output input {}'.format(str(rnn_output.shape)))
 
     # Memory enhanced structure
     if memory_rnn_type:
-        input_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'input_memory', memory_rnn_type)
-        output_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'output_memory', memory_rnn_type)
+        input_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'input_memory', memory_rnn_type, keep_prob=1, num_layers=1)
+        output_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'output_memory', memory_rnn_type, keep_prob=1, num_layers=1)
         rnn_output = memory_enhanced(rnn_output, input_memory, output_memory)
 
     y_pre = build_FC(rnn_output, rnn_hiddens, batch_norm, 'last')
@@ -252,10 +260,10 @@ def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gatin
     return y_pre
 
 
-def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating, batch_norm, nd, memory_rnn_type=None):
+def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating, batch_norm, num_layers, nd, memory_rnn_type=None):
     x_split = tf.unstack(x, axis=1)
 
-    sentCNNs = build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm)  # (?, 7, filter_num)
+    sentCNNs = build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm, nd)  # (?, 7, filter_num)
     sentCNNs = tf.unstack(sentCNNs, axis=1)  # (?, filter_num) * 7
 
     _contextCNNs = []
@@ -271,7 +279,7 @@ def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating
         else:
             _contextCNNs.append(tf.concat([sentCNNs[i - 1], sentCNNs[i], sentCNNs[i + 1]], axis=-1))
 
-     # contextCNNs = (?, 3, filter_num) * 7
+    # contextCNNs = (?, 3, filter_num) * 7
 
     for i in range(max_sent):
         logger.debug('_contextCNNs shape from {}'.format(_contextCNNs[i].shape))
@@ -319,21 +327,26 @@ def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating
         # features = concated.shape[-1]
         # contextCNNs[i] = tf.reshape(concated, [-1, features])
 
+    logger.debug('contextCNNs output shape {}'.format(str(contextCNNs.shape)))
+
     # memory_rnn_type = 'Bi-GRU'
     if memory_rnn_type:
-        input_memory = build_RNN(contextCNNs, bs, turns, fc_hiddens, batch_norm, 'input_memory', memory_rnn_type)
-        output_memory = build_RNN(contextCNNs, bs, turns, fc_hiddens, batch_norm, 'output_memory', memory_rnn_type)
+        input_memory = build_RNN(contextCNNs, bs, turns, fc_hiddens, batch_norm, 'input_memory', memory_rnn_type, keep_prob=1, num_layers=1)
+        output_memory = build_RNN(contextCNNs, bs, turns, fc_hiddens, batch_norm, 'output_memory', memory_rnn_type, keep_prob=1, num_layers=1)
         contextCNNs = memory_enhanced(contextCNNs, input_memory, output_memory)
 
-    # print('context CNN output shape', contextCNNs.shape)
-    batch, num_sent, num_features = contextCNNs.shape
-    num_flatten = num_sent * num_features
-    contextCNNs = tf.reshape(contextCNNs, [-1, num_flatten])
-    # features = contextCNNs[i].shape[-1]
-    # fc_reuse = False
+    logger.debug('contextCNNs output shape {}'.format(str(contextCNNs.shape)))
+    _, num_sent, num_features = contextCNNs.shape
+    contextCNNs = tf.reshape(contextCNNs, [-1, num_sent * num_features])
+
+    # contextCNNs = tf.reduce_mean(contextCNNs, axis=1)
+
+    logger.debug('FC input shape {}'.format(str(contextCNNs.shape)))
+
+    contextCNNs = tf.nn.dropout(contextCNNs, keep_prob)
 
     # Fully Connected Layer
-    fc1_W = weight_variable([num_flatten, fc_hiddens], name='fc1_W')
+    fc1_W = weight_variable([contextCNNs.shape[-1], fc_hiddens], name='fc1_W')
     fc1_b = bias_variable([fc_hiddens, ], name='fc1_b')
     fc1_out = tf.nn.relu(tf.matmul(contextCNNs, fc1_W) + fc1_b)
 
