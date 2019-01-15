@@ -237,7 +237,7 @@ def memory_enhanced(rnn_output, input_memory, output_memory):
     return sents_with_memory  # (?, 7, 1024)
 
 
-def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, label_dependency, masks):
+def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, label_dependency, masks, keep_prob):
     logger.debug('FC Input {}'.format(str(rnn_outputs.shape)))
     rnn_outputs = tf.unstack(rnn_outputs, axis=1)
     prev_nd = tf.fill((bs, max_sent), 0.0)
@@ -251,6 +251,8 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, label_dependency, masks):
         for i, rnn_output in enumerate(rnn_outputs):
             if batch_norm:
                 rnn_output = tf.layers.batch_normalization(rnn_output)
+
+            rnn_output = tf.nn.dropout(rnn_output, keep_prob)
 
             # if label_dependency:
             #     if i > 0:
@@ -280,7 +282,7 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, label_dependency, masks):
     return fc_outputs
 
 
-def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gating, batch_norm, num_layers, masks):
+def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gating, batch_norm, num_layers, masks, memory_rnn_type=None):
 
     # x_split = tf.split(x, max_sent, axis=1)
     x_split = tf.unstack(x, axis=1)
@@ -290,13 +292,13 @@ def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gatin
     logger.debug('rnn_output input {}'.format(str(rnn_output.shape)))
 
     # Memory enhanced structure
-    memory_rnn_type = 'Bi-GRU'
-    input_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'input_memory', memory_rnn_type, keep_prob, 1)
-    output_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'output_memory', memory_rnn_type, keep_prob, 1)
-    rnn_output = memory_enhanced(rnn_output, input_memory, output_memory)
+    if memory_rnn_type:
+        input_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'input_memory', memory_rnn_type, keep_prob, 1)
+        output_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'output_memory', memory_rnn_type, keep_prob, 1)
+        rnn_output = memory_enhanced(rnn_output, input_memory, output_memory)
 
     label_dependency = False
-    fc_outputs = build_FC(bs, rnn_output, rnn_hiddens, batch_norm, label_dependency, masks)
+    fc_outputs = build_FC(bs, rnn_output, rnn_hiddens, batch_norm, label_dependency, masks, keep_prob)
 
     return fc_outputs
 
@@ -410,10 +412,11 @@ def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating
 
         fc1_W = weight_variable([features, fc_hiddens], name='fc1_W', reuse=fc_reuse)
         fc1_b = bias_variable([fc_hiddens, ], name='fc1_b', reuse=fc_reuse)
-        fc1_out = tf.nn.relu(tf.matmul(contextCNNs[i], fc1_W) + fc1_b)
 
         if batch_norm:
             fc1_out = tf.layers.batch_normalization(fc1_out)
+
+        fc1_out = tf.nn.relu(tf.matmul(contextCNNs[i], fc1_W) + fc1_b)
 
         fc2_W = weight_variable([fc_hiddens, NDclasses], name='fc2_W', reuse=fc_reuse)
         fc2_b = bias_variable([NDclasses, ], name='fc2_b', reuse=fc_reuse)
