@@ -87,7 +87,7 @@ def build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_nor
                         x_sent = tf.layers.batch_normalization(x_sent)
 
                 sentCNN_pool = maxpool(x_sent, doclen, 1, 'sentCNN_pool', sentCNNs_reuse)
-                concated = tf.concat([sentCNN_pool, speaker, nd[i]], axis=-1, name='sentCNN_concated')
+                concated = tf.concat([sentCNN_pool, speaker, tf.expand_dims(nd[i], axis=1)], axis=-1, name='sentCNN_concated')
 
             else:
                 sentCNN_convA = x_sent
@@ -103,7 +103,7 @@ def build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_nor
 
                 sentCNN_poolA = maxpool(sentCNN_convA, doclen, 1, 'sentCNN_poolA', sentCNNs_reuse)
                 sentCNN_poolB = maxpool(sentCNN_convB, doclen, 1, 'sentCNN_poolB', sentCNNs_reuse)
-                concated = tf.concat([sentCNN_poolA, sentCNN_poolB, speaker, nd[i]], axis=-1, name='sentCNN_concated')
+                concated = tf.concat([sentCNN_poolA, sentCNN_poolB, speaker, tf.expand_dims(nd[i], axis=1)], axis=-1, name='sentCNN_concated')
 
             logger.debug('sentCNN output shape {}'.format(concated.shape))
 

@@ -235,7 +235,7 @@ def start_trainDQ(
 
 def start_trainDQ_NDF(
     trainX, trainY, train_turns, trainND,
-    devX, devDQ, dev_turns, devND,
+    devX, devY, dev_turns, devND,
     testX, test_turns, testND,
     scoretype, epoch, early_stopping, batch_size, lr, kp, hiddens, Fsize,
     Fnum, gating, bn, num_layers, method, evaluate, memory_rnn_type=None,
@@ -246,8 +246,8 @@ def start_trainDQ_NDF(
 
     tf.reset_default_graph()
 
-    x, y, bs, turns, num_dialog = DQ.init_input(doclen, embsize)
-    pred = method(x, bs, turns, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, memory_rnn_type)
+    x, y, bs, turns, num_dialog, nd = DQNDF.init_input(doclen, embsize)
+    pred = method(x, bs, turns, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, nd, memory_rnn_type)
     with tf.name_scope('loss'):
         cost = tf.divide(-tf.reduce_sum(y * tf.log(tf.clip_by_value(pred, 1e-10, 1.0))), tf.cast(num_dialog, tf.float32))
     with tf.name_scope('train'):
@@ -299,7 +299,7 @@ def start_trainDQ_NDF(
             for i in range(0, len_dev, batch_size):
                 j = i + batch_size
                 dev_bs = batch_size if j < len_dev else len_dev - i
-                dev_loss += sess.run(cost, feed_dict={x: devX[i:j], y: devY[i:j], bs: dev_bs, turns: dev_turns[i:j], num_dialog: len_devm nd: devND[i:j]})
+                dev_loss += sess.run(cost, feed_dict={x: devX[i:j], y: devY[i:j], bs: dev_bs, turns: dev_turns[i:j], num_dialog: len_dev, nd: devND[i:j]})
 
             train_losses.append(train_loss)
             dev_losses.append(dev_loss)
@@ -315,7 +315,7 @@ def start_trainDQ_NDF(
             if current_early_stoping >= early_stopping or (e + 1) == epoch:
                 assert dev_losses.index(min(dev_losses)) == len(dev_losses) - early_stopping - 1, 'Early Stop Error'
                 saver.restore(sess, './tmp/best_params')
-                pred_dev = sess.run(pred, feed_dict={x: devX, bs: len_dev, turns: dev_turns, })
+                pred_dev = sess.run(pred, feed_dict={x: devX, bs: len_dev, turns: dev_turns, nd: devND})
                 NMD, RSNOD = STCE.quality_evaluation(pred_dev, devY)
                 args = [method.__name__, e + 1, gating, bn, filter_size_str, hiddens,
                         num_filters_str, "{:.5f}".format(NMD), "{:.5f}".format(RSNOD)]
@@ -324,7 +324,7 @@ def start_trainDQ_NDF(
                 break
 
         if evaluate:
-            pred_test = sess.run(pred, feed_dict={x: testX, bs: len(testX), turns: test_turns, nd: testND[i:j]})
+            pred_test = sess.run(pred, feed_dict={x: testX, bs: len(testX), turns: test_turns, nd: testND})
             # saver = tf.train.Saver()
             # modelname = [method.__name__, e + 1, len(Fnum), batch_size, gating, filter_size_str, hiddens, num_filters_str]
             # modelpath = 'models/ND/{}.ckpt'.format('-'.join(map(str, modelname)))
