@@ -189,6 +189,7 @@ def build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, name, rnn_type, keep
 
         with tf.name_scope('add_Fw_Bw'):
             # final_state = tf.nn.tanh(tf.add(final_state_fw, final_state_bw))
+            # rnn_output = tf.concat([output_fw, output_bw], axis=2)
             rnn_output = tf.nn.tanh(tf.add(output_fw, output_bw))
             logger.debug('{} rnn_output {}'.format(name, str(rnn_output.shape)))
 
@@ -237,7 +238,7 @@ def memory_enhanced(rnn_output, input_memory, output_memory):
     return sents_with_memory  # (?, 7, 1024)
 
 
-def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, label_dependency, masks, keep_prob):
+def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, masks, keep_prob):
     logger.debug('FC Input {}'.format(str(rnn_outputs.shape)))
     rnn_outputs = tf.unstack(rnn_outputs, axis=1)
     prev_nd = tf.fill((bs, max_sent), 0.0)
@@ -252,14 +253,12 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, label_dependency, masks, 
             if batch_norm:
                 rnn_output = tf.layers.batch_normalization(rnn_output)
 
-            rnn_output = tf.nn.dropout(rnn_output, keep_prob)
+            if i % 2 == 0:  # customer
+                speaker_mask = tf.concat([tf.ones([bs, 4], dtype=tf.float32), tf.zeros([bs, 3], dtype=tf.float32)], axis=1)
+            else:  # helpdesk
+                speaker_mask = tf.concat([tf.zeros([bs, 4], dtype=tf.float32), tf.ones([bs, 3], dtype=tf.float32)], axis=1)
 
-            # if label_dependency:
-            #     if i > 0:
-            #         logger.debug('masks unstack {}'.format(str(masks[i - 1].shape)))
-            #         logger.debug('prev_nd {}'.format(str(prev_nd.shape)))
-            #         prev_nd = tf.multiply(prev_nd, masks[i - 1])
-            #     rnn_output = tf.concat([rnn_output, prev_nd], axis=1)
+            rnn_output = tf.nn.dropout(rnn_output, keep_prob)
 
             logger.debug('FC Input per sent {}'.format(str(rnn_output.shape)))
 
@@ -267,6 +266,8 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, label_dependency, masks, 
             fc1_b = bias_variable([NDclasses, ], name='fc1_b', reuse=fc_reuse)
             fc1_out = tf.matmul(rnn_output, fc1_W) + fc1_b
             y_pre = tf.nn.softmax(fc1_out)  # (?, 7)
+
+            # y_pre = tf.multiply(y_pre, speaker_mask)
 
             y_pre = tf.expand_dims(y_pre, axis=1)
 
@@ -280,6 +281,11 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, label_dependency, masks, 
             prev_nd = y_pre
 
     return fc_outputs
+
+
+# def build_CRF(bs, rnn_outputs, rnn_hiddens, batch_norm, masks, keep_prob):
+#     crf_W = weight_variable([rnn_outputs.shape[-1], NDclasses], name='crf_W')
+#     rnn_outputs = tf.reshape(rnn_outputs, [-1, ])
 
 
 def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gating, batch_norm, num_layers, masks, memory_rnn_type=None):
@@ -298,7 +304,8 @@ def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gatin
         rnn_output = memory_enhanced(rnn_output, input_memory, output_memory)
 
     label_dependency = False
-    fc_outputs = build_FC(bs, rnn_output, rnn_hiddens, batch_norm, label_dependency, masks, keep_prob)
+    fc_outputs = build_FC(bs, rnn_output, rnn_hiddens, batch_norm, masks, keep_prob)
+    # crf_outputs = bulid_CRF(bs, rnn_output, rnn_hiddens, batch_norm, masks, keep_prob)
 
     return fc_outputs
 
