@@ -95,6 +95,16 @@ def loss_function(pred, y, batch_size, num_sent, masks):
     return tf.divide(cost, num_sent)
 
 
+def crf_loss_function(pred, y, turns):
+    log_likelihood, transition_params = tf.contrib.crf.crf_log_likelihood(
+        inputs=pred,
+        tag_indices=y,
+        sequence_lengths=turns,
+    )
+
+    return tf.reduce_mean(-log_likelihood), transition_params
+
+
 def build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm):
     is_first = True
     sentCNNs_reuse = False
@@ -188,13 +198,9 @@ def build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, name, rnn_type, keep
         )
 
         with tf.name_scope('add_Fw_Bw'):
-            # final_state = tf.nn.tanh(tf.add(final_state_fw, final_state_bw))
-            # rnn_output = tf.concat([output_fw, output_bw], axis=2)
+            # rnn_output = tf.concat([output_fw, output_bw], axis=-1)
             rnn_output = tf.nn.tanh(tf.add(output_fw, output_bw))
             logger.debug('{} rnn_output {}'.format(name, str(rnn_output.shape)))
-
-        # rnn_output = tf.unstack(tf.transpose(rnn_output, [1, 0, 2]))  # (batch, max_sent, rnn_hiddens) = (?, 128) * 7
-        # print(name, 'rnn_output_after_unstack', len(rnn_output), rnn_output[0].shape)
 
     return rnn_output
 
@@ -249,6 +255,8 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, masks, keep_prob):
         is_first = True
         fc_reuse = False
 
+        logger.debug('FC Input per sent {}'.format(str(rnn_outputs[0].shape)))
+
         for i, rnn_output in enumerate(rnn_outputs):
             if batch_norm:
                 rnn_output = tf.layers.batch_normalization(rnn_output)
@@ -259,8 +267,6 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, masks, keep_prob):
                 speaker_mask = tf.concat([tf.zeros([bs, 4], dtype=tf.float32), tf.ones([bs, 3], dtype=tf.float32)], axis=1)
 
             rnn_output = tf.nn.dropout(rnn_output, keep_prob)
-
-            logger.debug('FC Input per sent {}'.format(str(rnn_output.shape)))
 
             fc1_W = weight_variable([rnn_output.shape[1], NDclasses], name='fc1_W', reuse=fc_reuse)
             fc1_b = bias_variable([NDclasses, ], name='fc1_b', reuse=fc_reuse)
@@ -283,12 +289,23 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, masks, keep_prob):
     return fc_outputs
 
 
-# def build_CRF(bs, rnn_outputs, rnn_hiddens, batch_norm, masks, keep_prob):
-#     crf_W = weight_variable([rnn_outputs.shape[-1], NDclasses], name='crf_W')
-#     rnn_outputs = tf.reshape(rnn_outputs, [-1, ])
+def build_CRF(fc_outputs, y, turns):
+    logger.debug('CRF x Input {}'.format(str(fc_outputs.shape)))
+    logger.debug('CRF y Input {}'.format(str(y.shape)))
+    logger.debug('CRF seqlen Input {}'.format(str(turns.shape)))
+
+    _, transition_params = crf_loss_function(fc_outputs, y, turns)
+
+    viterbi_sequence, viterbi_score = tf.contrib.crf.crf_decode(
+        potentials=fc_outputs,
+        transition_params=transition_params,
+        sequence_length=turns,
+    )
+
+    return viterbi_sequence
 
 
-def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gating, batch_norm, num_layers, masks, memory_rnn_type=None):
+def CNNRNN(x, y, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gating, batch_norm, num_layers, masks, memory_rnn_type=None):
 
     # x_split = tf.split(x, max_sent, axis=1)
     x_split = tf.unstack(x, axis=1)
@@ -303,14 +320,14 @@ def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gatin
         output_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'output_memory', memory_rnn_type, keep_prob, 1)
         rnn_output = memory_enhanced(rnn_output, input_memory, output_memory)
 
-    label_dependency = False
     fc_outputs = build_FC(bs, rnn_output, rnn_hiddens, batch_norm, masks, keep_prob)
-    # crf_outputs = bulid_CRF(bs, rnn_output, rnn_hiddens, batch_norm, masks, keep_prob)
+    # viterbi_sequence = build_CRF(fc_outputs, y, turns)
 
+    # return fc_outputs
     return fc_outputs
 
 
-def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating, batch_norm, masks):
+def CNNCNN(x, y, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating, batch_norm, masks):
 
     x_split = tf.unstack(x, axis=1)
 

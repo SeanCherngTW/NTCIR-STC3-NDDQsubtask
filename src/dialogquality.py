@@ -161,7 +161,8 @@ def build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, name, rnn_type, keep
         )
 
         with tf.name_scope('add_Fw_Bw'):
-            rnn_output = tf.nn.tanh(tf.add(output_fw, output_bw))
+            rnn_output = tf.concat([output_fw, output_bw], axis=-1)
+            # rnn_output = tf.nn.tanh(tf.add(output_fw, output_bw))
             logger.debug('{} rnn_output {}'.format(name, str(rnn_output.shape)))
 
     return rnn_output
@@ -244,7 +245,7 @@ def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gatin
     x_split = tf.unstack(x, axis=1)
     sentCNNs = build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm)  # Sentence representation
     logger.debug('sentCNNs input {}'.format(str(sentCNNs.shape)))
-    rnn_output = build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, 'context_RNN', 'Bi-LSTM', keep_prob=1, num_layers=num_layers)
+    rnn_output = build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, 'context_RNN', memory_rnn_type='Bi-LSTM', keep_prob=1, num_layers=num_layers)
     logger.debug('rnn_output input {}'.format(str(rnn_output.shape)))
 
     # Memory enhanced structure
@@ -284,63 +285,6 @@ def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating
         _, filters = _contextCNNs[i].shape
         _contextCNNs[i] = tf.reshape(_contextCNNs[i], [-1, 1, filters])
         logger.debug('_contextCNNs shape to {}'.format(_contextCNNs[i].shape))
-
-    # sentCNNs_reuse = False
-    # is_first = True
-    # sentCNNs = []
-
-    # # Sentence CNNs
-    # for i, x_sent in enumerate(x_split):
-    #     if i % 2 == 0:  # customer
-    #         speaker = tf.fill((bs, 1, 1), 0.0)
-    #     else:  # helpdesk
-    #         speaker = tf.fill((bs, 1, 1), 1.0)
-
-    #     if gating:
-    #         for layer, Fnum in enumerate(num_filters):
-    #             sentCNN_convA = conv1d(x_sent, filter_size[0], Fnum, 'sentCNN_convA{}'.format(layer), sentCNNs_reuse)
-    #             sentCNN_convB = conv1d(x_sent, filter_size[1], Fnum, 'sentCNN_convB{}'.format(layer), sentCNNs_reuse)
-    #             x_sent = tf.multiply(sentCNN_convA, tf.nn.sigmoid(sentCNN_convB), name='gating{}'.format(layer))
-    #             if batch_norm:
-    #                 x_sent = tf.layers.batch_normalization(x_sent)
-
-    #         sentCNN_pool = maxpool(x_sent, doclen, 1, 'sentCNN_pool', sentCNNs_reuse)
-    #         concated = tf.concat([sentCNN_pool, speaker], axis=-1)
-
-    #     else:
-    #         sentCNN_convA = x_sent
-    #         sentCNN_convB = x_sent
-    #         for layer, Fnum in enumerate(num_filters):
-    #             sentCNN_convA = conv1d(sentCNN_convA, filter_size[0], Fnum, 'sentCNN_convA{}'.format(layer), sentCNNs_reuse)
-    #             sentCNN_convB = conv1d(sentCNN_convB, filter_size[1], Fnum, 'sentCNN_convB{}'.format(layer), sentCNNs_reuse)
-    #             if batch_norm:
-    #                 sentCNN_convA = tf.layers.batch_normalization(sentCNN_convA)
-    #                 sentCNN_convB = tf.layers.batch_normalization(sentCNN_convB)
-
-    #         sentCNN_poolA = maxpool(sentCNN_convA, doclen, 1, 'sentCNN_poolA', sentCNNs_reuse)
-    #         sentCNN_poolB = maxpool(sentCNN_convB, doclen, 1, 'sentCNN_poolB', sentCNNs_reuse)
-    #         concated = tf.concat([sentCNN_poolA, sentCNN_poolB, speaker], axis=-1)
-
-    #     if is_first:
-    #         sentCNNs_reuse = True
-    #         is_first = False
-
-    #     sentCNNs.append(concated)
-
-    # Prepare Context CNN
-    # sentCNN_shape = sentCNNs[0].shape
-    # contextCNNs = []
-    # contextCNNs_reuse = False
-    # is_first = True
-    # for i in range(max_sent):
-    #     if i == 0:
-    #         start = tf.fill((bs, 1, sentCNN_shape[-1]), 0.0)
-    #         contextCNNs.append(tf.concat([start, sentCNNs[i], sentCNNs[i + 1]], axis=-1))
-    #     elif i == max_sent - 1:
-    #         end = tf.fill((bs, 1, sentCNN_shape[-1]), 0.0)
-    #         contextCNNs.append(tf.concat([sentCNNs[i - 1], sentCNNs[i], end], axis=-1))
-    #     else:
-    #         contextCNNs.append(tf.concat([sentCNNs[i - 1], sentCNNs[i], sentCNNs[i + 1]], axis=-1))
 
     # Context CNNs
     for i, x_context in enumerate(_contextCNNs):
@@ -386,8 +330,9 @@ def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating
 
     # memory_rnn_type = 'Bi-GRU'
     if memory_rnn_type:
-        input_memory = build_RNN(contextCNNs, bs, turns, fc_hiddens, batch_norm, 'input_memory', memory_rnn_type, keep_prob=1, num_layers=1)
-        output_memory = build_RNN(contextCNNs, bs, turns, fc_hiddens, batch_norm, 'output_memory', memory_rnn_type, keep_prob=1, num_layers=1)
+        rnn_hiddens = int(contextCNNs.shape[-1]) / 2
+        input_memory = build_RNN(contextCNNs, bs, turns, rnn_hiddens, batch_norm, 'input_memory', memory_rnn_type, keep_prob=1, num_layers=1)
+        output_memory = build_RNN(contextCNNs, bs, turns, rnn_hiddens, batch_norm, 'output_memory', memory_rnn_type, keep_prob=1, num_layers=1)
         contextCNNs = memory_enhanced(contextCNNs, input_memory, output_memory)
 
     logger.debug('contextCNNs output shape {}'.format(str(contextCNNs.shape)))

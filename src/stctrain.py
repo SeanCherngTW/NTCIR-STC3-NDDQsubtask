@@ -32,16 +32,20 @@ def start_trainND(
         trainX, trainY, train_turns, train_masks,
         devX, devND, dev_turns, dev_masks,
         testX, test_turns, test_masks,
-        epoch, early_stopping, batch_size, lr, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, method, evaluate, memory_rnn_type=None,
+        epoch, early_stopping, batch_size, lr, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, method, evaluate, memory_rnn_type=None, usingCRF=False,
 ):
     assert method.__name__ in ['CNNRNN', 'CNNCNN']
 
     tf.reset_default_graph()
 
     x, y, bs, turns, masks, num_sent = ND.init_input(doclen, embsize)
-    pred = method(x, bs, turns, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, masks, memory_rnn_type)
+    pred = method(x, y, bs, turns, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, masks, memory_rnn_type)
     with tf.name_scope('loss'):
-        cost = ND.loss_function(pred, y, batch_size, num_sent, masks)
+        if usingCRF:
+            cost, _ = ND.crf_loss_function(pred, y, turns)
+        else:
+            cost = ND.loss_function(pred, y, batch_size, num_sent, masks)
+
     with tf.name_scope('train'):
         train_op = tf.train.AdamOptimizer(lr).minimize(cost)
 
