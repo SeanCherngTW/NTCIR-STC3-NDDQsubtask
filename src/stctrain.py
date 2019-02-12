@@ -32,19 +32,16 @@ def start_trainND(
         trainX, trainY, train_turns, train_masks,
         devX, devND, dev_turns, dev_masks,
         testX, test_turns, test_masks,
-        epoch, early_stopping, batch_size, lr, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, method, evaluate, memory_rnn_type=None, usingCRF=False,
+        epoch, early_stopping, batch_size, lr, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, method, evaluate, memory_rnn_type=None
 ):
     assert method.__name__ in ['CNNRNN', 'CNNCNN']
 
     tf.reset_default_graph()
-
     x, y, bs, turns, masks, num_sent = ND.init_input(doclen, embsize)
+
     pred = method(x, y, bs, turns, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, masks, memory_rnn_type)
     with tf.name_scope('loss'):
-        if usingCRF:
-            cost, _ = ND.crf_loss_function(pred, y, turns)
-        else:
-            cost = ND.loss_function(pred, y, batch_size, num_sent, masks)
+        cost = ND.loss_function(pred, y, batch_size, num_sent, masks)
 
     with tf.name_scope('train'):
         train_op = tf.train.AdamOptimizer(lr).minimize(cost)
@@ -120,8 +117,7 @@ def start_trainND(
                 saver.restore(sess, './tmp/best_params')
                 pred_dev = sess.run(pred, feed_dict={x: devX, bs: len_dev, turns: dev_turns, masks: dev_masks})
                 RNSS, JSD = STCE.nugget_evaluation(pred_dev, devND, dev_turns)
-                args = [method.__name__, e + 1, gating, bn, filter_size_str, hiddens,
-                        num_filters_str, kp, "{:.5f}".format(JSD), "{:.5f}".format(RNSS)]
+                args = [method.__name__, e + 1, gating, bn, filter_size_str, hiddens, num_filters_str, kp, "{:.5f}".format(JSD), "{:.5f}".format(RNSS)]
                 argstr = '|'.join(map(str, args))
                 logger.info(argstr)
                 break

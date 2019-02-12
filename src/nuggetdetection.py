@@ -95,16 +95,6 @@ def loss_function(pred, y, batch_size, num_sent, masks):
     return tf.divide(cost, num_sent)
 
 
-def crf_loss_function(pred, y, turns):
-    log_likelihood, transition_params = tf.contrib.crf.crf_log_likelihood(
-        inputs=pred,
-        tag_indices=y,
-        sequence_lengths=turns,
-    )
-
-    return tf.reduce_mean(-log_likelihood), transition_params
-
-
 def build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm):
     is_first = True
     sentCNNs_reuse = False
@@ -289,22 +279,6 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, masks, keep_prob):
     return fc_outputs
 
 
-def build_CRF(fc_outputs, y, turns):
-    logger.debug('CRF x Input {}'.format(str(fc_outputs.shape)))
-    logger.debug('CRF y Input {}'.format(str(y.shape)))
-    logger.debug('CRF seqlen Input {}'.format(str(turns.shape)))
-
-    _, transition_params = crf_loss_function(fc_outputs, y, turns)
-
-    viterbi_sequence, viterbi_score = tf.contrib.crf.crf_decode(
-        potentials=fc_outputs,
-        transition_params=transition_params,
-        sequence_length=turns,
-    )
-
-    return viterbi_sequence
-
-
 def CNNRNN(x, y, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gating, batch_norm, num_layers, masks, memory_rnn_type=None):
 
     # x_split = tf.split(x, max_sent, axis=1)
@@ -321,9 +295,6 @@ def CNNRNN(x, y, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, ga
         rnn_output = memory_enhanced(rnn_output, input_memory, output_memory)
 
     fc_outputs = build_FC(bs, rnn_output, rnn_hiddens, batch_norm, masks, keep_prob)
-    # viterbi_sequence = build_CRF(fc_outputs, y, turns)
-
-    # return fc_outputs
     return fc_outputs
 
 
