@@ -1,5 +1,8 @@
+from gensim.models.keyedvectors import KeyedVectors
 doclen = 150
-embsize = 256
+embedding_path = "../embedding/STCWiki/STCWiki_mincount0.model.bin"
+embsize = KeyedVectors.load(embedding_path)['a'].shape[0]
+# embsize = 300
 max_sent = 7
 NDclasses = 7
 DQclasses = 5

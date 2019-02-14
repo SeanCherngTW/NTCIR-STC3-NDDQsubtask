@@ -26,6 +26,7 @@ class DataHelper:
         self.embsize = param.embsize
         self.max_sent = param.max_sent
         self.NDclasses = param.NDclasses
+        self.glove_300d = pickle.load(open('GloVe_840B_300d.p', 'rb'))
 
         with open('../data/test_data_en.json', encoding='utf8') as f:
             self.test_en = json.load(f)
@@ -41,6 +42,7 @@ class DataHelper:
 
     def set_word_vectors(self, word_vectors):
         self.word_vectors = word_vectors
+        self.embsize = word_vectors['a'].shape[0]
 
     def get_corpus(self, name):
         if name not in ['train', 'test']:
@@ -245,9 +247,30 @@ class DataHelper:
         logger.info('# vocab (freq > 2) = {}'.format(len([i for i, v in vocab.items() if v > 2])))
 
         dl = 0
+        doclens = []
+        doclen_stat = [0] * 7
         for c in corpus[1:]:
             dl = max(dl, len(c))
+            doclens.append(len(c))
+
+        for d in doclens:
+            if d <= 50:
+                doclen_stat[0] += 1
+            elif d <= 100:
+                doclen_stat[1] += 1
+            elif d <= 150:
+                doclen_stat[2] += 1
+            elif d <= 200:
+                doclen_stat[3] += 1
+            elif d <= 300:
+                doclen_stat[4] += 1
+            elif d <= 400:
+                doclen_stat[5] += 1
+            else:
+                doclen_stat[6] += 1
+
         logger.info('max document len = {}'.format(dl))
+        # print('document len distribution = {}'.format(doclen_stat))
 
         return corpus
 
@@ -288,7 +311,7 @@ class DataHelper:
             all_dialog_masks.append(np.asarray(dialog_mask.copy()))
         return all_dialog_masks
 
-    def get_model_train_data(self, data_type, token_type, remove_stopwords, to_lower):
+    def get_model_train_data(self, data_type, token_type, remove_stopwords, to_lower, emb):
         logger = logging.getLogger('corpus word2vec')
         NDdim = 7
         DQdim = 3
@@ -309,6 +332,16 @@ class DataHelper:
         else:
             raise NameError('Parameter "data_type" must be "train" or "dev"')
 
+        if emb == 'glove':
+            embedding_index = self.glove_300d
+            unk_vec = embedding_index['unk']
+        elif emb == 'stc':
+            embedding_index = self.word_vectors
+        else:
+            raise NameError('Parameter "emb" must be "glove" of "stc"')
+
+        maxlen = 0
+
         for c in corpus:
             _id, _, texts, nuggets, quality = c
 
@@ -326,17 +359,23 @@ class DataHelper:
                 for token in tokens:
                     if len(tokens_vec) >= self.doclen:
                         break
-                    if token in self.word_vectors:
-                        tokens_vec.append(self.word_vectors[token])
+                    if token in embedding_index:
+                        tokens_vec.append(embedding_index[token])
                     else:
                         unk += 1
-                        tokens_vec.append(np.zeros(self.embsize))
+                        logger.info('Unknown word: {}'.format(token))
+                        if emb == 'glove':
+                            tokens_vec.append(unk_vec)
+                        else:
+                            tokens_vec.append(np.zeros(self.embsize))
 
                 # doc補零
                 while len(tokens_vec) < self.doclen:
                     tokens_vec.append(np.zeros(self.embsize))
 
                 dialogX.append(np.asarray(tokens_vec.copy(), dtype=np.float32))
+
+                maxlen = max(maxlen, len(tokens_vec))
 
                 for k, v in nugget.items():
                     labelND[NDmap[k]] = nugget[k]
@@ -355,16 +394,26 @@ class DataHelper:
             Ynd.append(np.asarray(dialogND.copy(), dtype=np.float32))
             Ydq.append(quality.copy())
         logger.info('Training data unknown words count: {}'.format(unk))
+        logger.info('Training data max doclen: {}'.format(maxlen))
         masks = self.turn2mask(turns)
         return np.asarray(X), np.asarray(Ynd), np.asarray(Ydq), turns, masks
 
-    def get_model_test_data(self, token_type, remove_stopwords, to_lower):
+    def get_model_test_data(self, token_type, remove_stopwords, to_lower, emb):
         logger = logging.getLogger('corpus word2vec')
         X = []
         turns = []
         unk = 0
 
         corpus = self.test_corpus
+        maxlen = 0
+
+        if emb == 'glove':
+            embedding_index = self.glove_300d
+            unk_vec = embedding_index['unk']
+        elif emb == 'stc':
+            embedding_index = self.word_vectors
+        else:
+            raise NameError('Parameter "emb" must be "glove" of "stc"')
 
         for c in corpus:
             _id, _, texts = c
@@ -378,17 +427,23 @@ class DataHelper:
                 for token in tokens:
                     if len(tokens_vec) >= self.doclen:
                         break
-                    if token in self.word_vectors:
-                        tokens_vec.append(self.word_vectors[token])
+                    if token in embedding_index:
+                        tokens_vec.append(embedding_index[token])
                     else:
                         unk += 1
-                        tokens_vec.append(np.zeros(self.embsize))
+                        logger.info('Unknown word: {}'.format(token))
+                        if emb == 'glove':
+                            tokens_vec.append(unk_vec)
+                        else:
+                            tokens_vec.append(np.zeros(self.embsize))
 
                 # doc補零
                 while len(tokens_vec) < self.doclen:
                     tokens_vec.append(np.zeros(self.embsize))
 
                 dialogX.append(np.asarray(tokens_vec.copy(), dtype=np.float32))
+
+                maxlen = max(maxlen, len(tokens_vec))
 
             # Num of turns for each dialog
             turns.append(len(dialogX))
@@ -399,6 +454,7 @@ class DataHelper:
 
             X.append(np.asarray(dialogX.copy(), dtype=np.float32))
         logger.info('Testing data unknown words count: {}'.format(unk))
+        logger.info('Testing data max doclen: {}'.format(maxlen))
         masks = self.turn2mask(turns)
         return np.asarray(X), turns, masks
 

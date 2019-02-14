@@ -78,8 +78,9 @@ def init_input(doclen, embsize):
 def loss_function(pred, y, batch_size, num_sent, masks):
     with tf.name_scope('Loss'):
         cost = 0
-        pred_masked = tf.multiply(pred, masks)
-        pred_sents = tf.unstack(pred_masked, axis=1)
+        # pred_masked = tf.multiply(pred, masks)
+        # pred_sents = tf.unstack(pred_masked, axis=1)
+        pred_sents = tf.unstack(pred, axis=1)
         y_sents = tf.unstack(y, axis=1)
         num_sent = tf.cast(num_sent, tf.float32)
 
@@ -281,6 +282,7 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, masks, keep_prob):
 
 def CNNRNN(x, y, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gating, batch_norm, num_layers, masks, memory_rnn_type=None):
 
+    print('x.shape', x.shape)
     # x_split = tf.split(x, max_sent, axis=1)
     x_split = tf.unstack(x, axis=1)
     sentCNNs = build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm)  # Sentence representation
@@ -295,6 +297,9 @@ def CNNRNN(x, y, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, ga
         rnn_output = memory_enhanced(rnn_output, input_memory, output_memory)
 
     fc_outputs = build_FC(bs, rnn_output, rnn_hiddens, batch_norm, masks, keep_prob)
+    # viterbi_sequence, viterbi_score = build_CRF(fc_outputs, y, turns)
+
+    # return viterbi_score
     return fc_outputs
 
 

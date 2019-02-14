@@ -26,7 +26,11 @@ class STCTokenizer:
 
         text = unicodedata.normalize('NFKC', text)
         # text = re.sub(r'[^A-Za-z\']', '', text)
-        text = re.sub(r'[^A-Za-z!"#$%&()*+,-./:;<=>?@[\]^_`{|}~ \']', '', text)
+
+        if remove_stopwords:
+            text = re.sub(r'[^A-Za-z ]', '', text)
+        else:
+            text = re.sub(r'[^A-Za-z!"#$%&()*+,-./:;<=>?@[\]^_`{|}~ \']', '', text)
 
         if type == 'nltk':
             filter_tokens = nltk.word_tokenize(text)

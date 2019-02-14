@@ -113,13 +113,14 @@ def start_trainND(
                 saver.save(sess, './tmp/best_params')
 
             if current_early_stoping >= early_stopping or (e + 1) == epoch:
-                assert dev_losses.index(min(dev_losses)) == len(dev_losses) - early_stopping - 1, 'Early Stop Error'
+                # assert dev_losses.index(min(dev_losses)) == len(dev_losses) - early_stopping - 1, 'Early Stop Error'
                 saver.restore(sess, './tmp/best_params')
                 pred_dev = sess.run(pred, feed_dict={x: devX, bs: len_dev, turns: dev_turns, masks: dev_masks})
+
                 RNSS, JSD = STCE.nugget_evaluation(pred_dev, devND, dev_turns)
-                args = [method.__name__, e + 1, gating, bn, filter_size_str, hiddens, num_filters_str, kp, "{:.5f}".format(JSD), "{:.5f}".format(RNSS)]
+                args = [method.__name__, e + 1, gating, bn, filter_size_str, hiddens, num_filters_str, kp, "{:.4f}".format(JSD), "{:.4f}".format(RNSS)]
                 argstr = '|'.join(map(str, args))
-                logger.info(argstr)
+                print(argstr)
                 break
 
         if evaluate:
@@ -219,7 +220,7 @@ def start_trainDQ(
                 args = [method.__name__, e + 1, gating, bn, filter_size_str, hiddens,
                         num_filters_str, "{:.5f}".format(NMD), "{:.5f}".format(RSNOD)]
                 argstr = '|'.join(map(str, args))
-                logger.info(argstr)
+                print(argstr)
                 break
 
         if evaluate:
@@ -320,7 +321,7 @@ def start_trainDQ_NDF(
                 args = [method.__name__, e + 1, gating, bn, filter_size_str, hiddens,
                         num_filters_str, "{:.5f}".format(NMD), "{:.5f}".format(RSNOD)]
                 argstr = '|'.join(map(str, args))
-                logger.info(argstr)
+                print(argstr)
                 break
 
         if evaluate:

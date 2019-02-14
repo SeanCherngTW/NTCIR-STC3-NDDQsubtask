@@ -242,12 +242,12 @@ def main():
                       alpha=flags.alpha, strict=flags.strict)
 
     print('*****\nNUGGET DETECTION')
-    print('JSD={:.5f} | RNSS={:.5f}'.format(result["nugget"]["jsd"], result["nugget"]["rnss"]))
+    print('JSD={:.4f} | RNSS={:.4f}'.format(result["nugget"]["jsd"], result["nugget"]["rnss"]))
     print()
     print('DIALOGUE QUALITY')
-    print('A-Score: NMD={:.5f} | RSNOD={:.5f}'.format(result["quality"]["nmd"]["A"], result["quality"]["rsnod"]["A"]))
-    print('E-Score: NMD={:.5f} | RSNOD={:.5f}'.format(result["quality"]["nmd"]["E"], result["quality"]["rsnod"]["E"]))
-    print('S-Score: NMD={:.5f} | RSNOD={:.5f}'.format(result["quality"]["nmd"]["S"], result["quality"]["rsnod"]["S"]))
+    print('A-Score: NMD={:.4f} | RSNOD={:.4f}'.format(result["quality"]["nmd"]["A"], result["quality"]["rsnod"]["A"]))
+    print('E-Score: NMD={:.4f} | RSNOD={:.4f}'.format(result["quality"]["nmd"]["E"], result["quality"]["rsnod"]["E"]))
+    print('S-Score: NMD={:.4f} | RSNOD={:.4f}'.format(result["quality"]["nmd"]["S"], result["quality"]["rsnod"]["S"]))
     print('*****')
     # result["nugget"]
 
