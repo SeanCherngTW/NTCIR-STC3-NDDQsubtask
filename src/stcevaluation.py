@@ -53,11 +53,12 @@ def RSNOD(pred, truth):
     return np.sqrt((sod / (len(pred) - 1)))
 
 
-def nugget_evaluation(pred, y, turns):
+def nugget_evaluation(pred, y, turns, masks):
     # pred = y = (?, 7, 7)
     total_RNSS = 0
     total_JSD = 0
     total_sent = 0
+    # pred = np.multiply(pred, masks)
     for pred_sents, y_sents in zip(pred, y):  # (7, 7)
         for pred_sent, y_sent in zip(pred_sents, y_sents):  # (7)
             if np.all(y_sent == 0):

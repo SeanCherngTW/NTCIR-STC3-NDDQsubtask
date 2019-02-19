@@ -117,7 +117,7 @@ def start_trainND(
                 saver.restore(sess, './tmp/best_params')
                 pred_dev = sess.run(pred, feed_dict={x: devX, bs: len_dev, turns: dev_turns, masks: dev_masks})
 
-                RNSS, JSD = STCE.nugget_evaluation(pred_dev, devND, dev_turns)
+                RNSS, JSD = STCE.nugget_evaluation(pred_dev, devND, dev_turns, dev_masks)
                 args = [method.__name__, e + 1, gating, bn, filter_size_str, hiddens, num_filters_str, kp, "{:.4f}".format(JSD), "{:.4f}".format(RNSS)]
                 argstr = '|'.join(map(str, args))
                 print(argstr)
