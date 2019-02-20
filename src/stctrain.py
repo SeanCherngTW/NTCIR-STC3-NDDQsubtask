@@ -136,7 +136,8 @@ def start_trainND(
 
 def start_trainDQ(
     trainX, trainY, train_turns,
-    devX, devY, dev_turns, testX, test_turns,
+    devX, devY, dev_turns,
+    testX, test_turns,
     scoretype, epoch, early_stopping, batch_size, lr, kp, hiddens, Fsize,
     Fnum, gating, bn, num_layers, method, evaluate, memory_rnn_type=None,
 ):

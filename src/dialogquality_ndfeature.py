@@ -287,6 +287,8 @@ def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating
         _contextCNNs[i] = tf.reshape(_contextCNNs[i], [-1, 1, filters])
         logger.debug('_contextCNNs shape to {}'.format(_contextCNNs[i].shape))
 
+    num_filters = [1024] * num_layers
+
     # Context CNNs
     for i, x_context in enumerate(_contextCNNs):
         if gating:
