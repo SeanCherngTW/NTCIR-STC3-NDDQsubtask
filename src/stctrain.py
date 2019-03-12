@@ -13,9 +13,9 @@ import numpy as np
 import tensorflow as tf
 import datahelper
 import stctokenizer
-import nuggetdetection as ND
-import dialogquality as DQ
-import dialogquality_ndfeature as DQNDF
+import nuggetdetectionBERT as ND
+import dialogqualityBERT as DQ
+import dialogquality_ndfeatureBERT as DQNDF
 import stcevaluation as STCE
 logger = logging.getLogger('Training')
 

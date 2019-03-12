@@ -311,18 +311,23 @@ class DataHelper:
             all_dialog_masks.append(np.asarray(dialog_mask.copy()))
         return all_dialog_masks
 
-    def get_model_train_data(self, data_type, token_type, remove_stopwords, to_lower, emb):
+    def get_model_train_data(self, data_type, token_type, remove_stopwords, to_lower, emb, bert):
         logger = logging.getLogger('corpus word2vec')
         NDdim = 7
         DQdim = 3
         NDmap = {'CNUG*': 0, 'CNUG': 1, 'CNaN': 2, 'CNUG0': 3, 'HNUG*': 4, 'HNUG': 5, 'HNaN': 6}
         DQmap = {'A': 0, 'S': 1, 'E': 2}
 
+        if bert:
+            from bert_serving.client import BertClient
+            bc = BertClient()
+
         # Store text, nuggets and quality for each dialog
         X = []
         Ynd = []
         Ydq = []
         turns = []
+        bertX = []
         unk = 0
 
         if data_type == 'train':
@@ -347,12 +352,19 @@ class DataHelper:
 
             # Store text, nuggets and quality for each dialog
             dialogX = []
+            dialogbertX = []
             dialogND = []
             dialogDQ = []
 
             # For Nugget Detection
             for text, nugget in zip(texts, nuggets):
                 tokens = self.stctokenizer.tokenize(token_type, text, remove_stopwords, to_lower)
+                if bert:
+                    if len(tokens) == 0:
+                        tokens = ['.']
+                    vec = np.reshape(bc.encode([tokens], is_tokenized=True), 1024)
+                    dialogbertX.append(vec)
+
                 tokens_vec = []
                 labelND = [0] * NDdim
 
@@ -389,20 +401,30 @@ class DataHelper:
             while len(dialogX) < self.max_sent and len(dialogND) < self.max_sent:
                 dialogX.append(np.zeros([self.doclen, self.embsize]))
                 dialogND.append(np.asarray([0] * self.NDclasses))
+                if bert:
+                    dialogbertX.append(np.zeros([1024, ]))
 
             X.append(np.asarray(dialogX.copy(), dtype=np.float32))
             Ynd.append(np.asarray(dialogND.copy(), dtype=np.float32))
             Ydq.append(quality.copy())
+            if bert:
+                bertX.append(np.asarray(dialogbertX))
+
         logger.info('Training data unknown words count: {}'.format(unk))
         logger.info('Training data max doclen: {}'.format(maxlen))
         masks = self.turn2mask(turns)
-        return np.asarray(X), np.asarray(Ynd), np.asarray(Ydq), turns, masks
+        return np.asarray(X), np.asarray(bertX), np.asarray(Ynd), np.asarray(Ydq), turns, masks
 
-    def get_model_test_data(self, token_type, remove_stopwords, to_lower, emb):
+    def get_model_test_data(self, token_type, remove_stopwords, to_lower, emb, bert):
         logger = logging.getLogger('corpus word2vec')
         X = []
         turns = []
+        bertX = []
         unk = 0
+
+        if bert:
+            from bert_serving.client import BertClient
+            bc = BertClient()
 
         corpus = self.test_corpus
         maxlen = 0
@@ -419,9 +441,15 @@ class DataHelper:
             _id, _, texts = c
 
             dialogX = []
+            dialogbertX = []
 
             for text in texts:
                 tokens = self.stctokenizer.tokenize(token_type, text, remove_stopwords, to_lower)
+                if bert:
+                    if len(tokens) == 0:
+                        tokens = ['.']
+                    vec = np.reshape(bc.encode([tokens], is_tokenized=True), 1024)
+                    dialogbertX.append(vec)
                 tokens_vec = []
 
                 for token in tokens:
@@ -451,12 +479,16 @@ class DataHelper:
             # Pending with zero for dialogs with turns < 7
             while len(dialogX) < self.max_sent:
                 dialogX.append(np.zeros([self.doclen, self.embsize]))
+                if bert:
+                    dialogbertX.append(np.zeros([1024, ]))
 
             X.append(np.asarray(dialogX.copy(), dtype=np.float32))
+            if bert:
+                bertX.append(np.asarray(dialogbertX))
         logger.info('Testing data unknown words count: {}'.format(unk))
         logger.info('Testing data max doclen: {}'.format(maxlen))
         masks = self.turn2mask(turns)
-        return np.asarray(X), turns, masks
+        return np.asarray(X), np.asarray(bertX), turns, masks
 
     def pred_to_submission(self, testND, testDQA, testDQS, testDQE, turns, IDs, filename):
             # {'CNUG*': 0, 'CNUG': 1, 'CNaN': 2, 'CNUG0': 3, 'HNUG*': 4, 'HNUG': 5, 'HNaN': 6}

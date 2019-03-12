@@ -7,4 +7,4 @@ max_sent = 7
 NDclasses = 7
 DQclasses = 5
 # sentembsize = 4800
-sentembsize = 2400
+sentembsize = 1024
