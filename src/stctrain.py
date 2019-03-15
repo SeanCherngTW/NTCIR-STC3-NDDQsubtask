@@ -13,9 +13,6 @@ import numpy as np
 import tensorflow as tf
 import datahelper
 import stctokenizer
-import nuggetdetectionBERT as ND
-import dialogqualityBERT as DQ
-import dialogquality_ndfeatureBERT as DQNDF
 import stcevaluation as STCE
 logger = logging.getLogger('Training')
 
@@ -25,16 +22,21 @@ max_sent = param.max_sent
 NDclasses = param.NDclasses
 config = tf.ConfigProto()
 # config.gpu_options.allow_growth = True
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
 def start_trainND(
         trainX, trainY, train_turns, train_masks,
         devX, devND, dev_turns, dev_masks,
         testX, test_turns, test_masks,
-        epoch, early_stopping, batch_size, lr, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, method, evaluate, memory_rnn_type=None
+        epoch, early_stopping, batch_size, lr, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, method, evaluate, memory_rnn_type=None, bert=False,
 ):
     assert method.__name__ in ['CNNRNN', 'CNNCNN']
+
+    if bert:
+        import nuggetdetectionBERT as ND
+    else:
+        import nuggetdetection as ND
 
     tf.reset_default_graph()
     x, y, bs, turns, masks, num_sent = ND.init_input(doclen, embsize)
@@ -139,11 +141,16 @@ def start_trainDQ(
     devX, devY, dev_turns,
     testX, test_turns,
     scoretype, epoch, early_stopping, batch_size, lr, kp, hiddens, Fsize,
-    Fnum, gating, bn, num_layers, method, evaluate, memory_rnn_type=None,
+    Fnum, gating, bn, num_layers, method, evaluate, memory_rnn_type=None, bert=False,
 ):
 
     assert method.__name__ in ['CNNRNN', 'CNNCNN']
     assert scoretype in ['DQA', 'DQS', 'DQE']
+
+    if bert:
+        import dialogqualityBERT as DQ
+    else:
+        import dialogquality as DQ
 
     tf.reset_default_graph()
 
@@ -240,11 +247,16 @@ def start_trainDQ_NDF(
     devX, devY, dev_turns, devND,
     testX, test_turns, testND,
     scoretype, epoch, early_stopping, batch_size, lr, kp, hiddens, Fsize,
-    Fnum, gating, bn, num_layers, method, evaluate, memory_rnn_type=None,
+    Fnum, gating, bn, num_layers, method, evaluate, memory_rnn_type=None, bert=False,
 ):
 
     assert method.__name__ in ['CNNRNN', 'CNNCNN']
     assert scoretype in ['DQA', 'DQS', 'DQE']
+
+    if bert:
+        import dialogquality_ndfeatureBERT as DQNDF
+    else:
+        import dialogquality_ndfeature as DQNDF
 
     tf.reset_default_graph()
 
