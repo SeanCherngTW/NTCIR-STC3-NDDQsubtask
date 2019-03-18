@@ -75,6 +75,12 @@ def start_trainND(
     with tf.Session(config=config).as_default() as sess:
         sess.run(tf.global_variables_initializer())
         writer = tf.summary.FileWriter("logs/ND-{}/".format(method_info), sess.graph)
+        if bert:
+
+
+
+
+
         for e in range(epoch):
             merge = list(zip(trainX, trainY, train_turns, train_masks))
             random.shuffle(merge)

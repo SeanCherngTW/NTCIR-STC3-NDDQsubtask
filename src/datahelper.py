@@ -358,11 +358,10 @@ class DataHelper:
 
             # For Nugget Detection
             for text, nugget in zip(texts, nuggets):
+                text = '.' if text == '' else text
                 tokens = self.stctokenizer.tokenize(token_type, text, remove_stopwords, to_lower)
                 if bert:
-                    if len(tokens) == 0:
-                        tokens = ['.']
-                    vec = np.reshape(bc.encode([tokens], is_tokenized=True), 1024)
+                    vec = np.reshape(bc.encode([text]), 1024)
                     dialogbertX.append(vec)
 
                 tokens_vec = []
@@ -444,11 +443,10 @@ class DataHelper:
             dialogbertX = []
 
             for text in texts:
+                text = '.' if text == '' else text
                 tokens = self.stctokenizer.tokenize(token_type, text, remove_stopwords, to_lower)
                 if bert:
-                    if len(tokens) == 0:
-                        tokens = ['.']
-                    vec = np.reshape(bc.encode([tokens], is_tokenized=True), 1024)
+                    vec = np.reshape(bc.encode([text]), 1024)
                     dialogbertX.append(vec)
                 tokens_vec = []
 
