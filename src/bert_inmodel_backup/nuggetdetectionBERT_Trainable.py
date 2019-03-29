@@ -11,14 +11,77 @@ from gensim.models import Word2Vec
 from gensim.models import word2vec
 from time import gmtime, strftime, localtime
 from gensim.models.keyedvectors import KeyedVectors
+import tensorflow_hub as hub
 
 doclen = param.doclen
-embsize = param.embsize
+# embsize = param.embsize
+sentembsize = param.sentembsize
 max_sent = param.max_sent
 NDclasses = param.NDclasses
-
+bert_hub_model_handle = "https://tfhub.dev/google/bert_uncased_L-12_H-768_A-12/1"
 logger = logging.getLogger('ND task')
 tf.logging.set_verbosity(tf.logging.ERROR)
+
+INPUT_DIMS = 1
+
+
+def unstack_bert_features(input_ids, input_mask, segment_ids, bert_module):
+    input_ids = tf.cast(tf.squeeze(input_ids), tf.int32)
+    input_mask = tf.cast(tf.squeeze(input_mask), tf.int32)
+    segment_ids = tf.cast(tf.squeeze(segment_ids), tf.int32)
+
+    logger.debug('BERT Input Features {}'.format(str(input_ids.shape)))
+
+    bert_inputs = dict(
+        input_ids=input_ids,
+        input_mask=input_mask,
+        segment_ids=segment_ids,
+    )
+
+    bert_outputs = bert_module(bert_inputs, signature="tokens", as_dict=True)
+    pooled_output = bert_outputs["pooled_output"]  # (21, 768)
+    pooled_output = tf.expand_dims(pooled_output, axis=0)
+    # pooled_output = tf.reshape(pooled_output, [-1, max_sent, 768])
+
+    logger.debug('BERT Pooled Output {}'.format(str(pooled_output.shape)))
+    return pooled_output
+
+
+# def unstack_bert_features(input_ids, input_mask, segment_ids, bert_module):
+#     input_ids = tf.split(input_ids, 3, axis=0)
+#     input_mask = tf.split(input_mask, 3, axis=0)
+#     segment_ids = tf.split(segment_ids, 3, axis=0)
+
+#     for diaID, (dialog_ids, dialog_masks, dialog_segids) in enumerate(zip(input_ids, input_mask, segment_ids)):
+#         dialog_ids = tf.cast(tf.reshape(dialog_ids, [max_sent, doclen]), tf.int32)
+#         dialog_masks = tf.cast(tf.reshape(dialog_masks, [max_sent, doclen]), tf.int32)
+#         dialog_segids = tf.cast(tf.reshape(dialog_segids, [max_sent, doclen]), tf.int32)
+
+#         logger.debug('BERT Input Features {}'.format(str(dialog_ids.shape)))
+
+#         bert_inputs = dict(
+#             input_ids=dialog_ids,
+#             input_mask=dialog_masks,
+#             segment_ids=dialog_segids,
+#         )
+
+#         bert_outputs = bert_module(bert_inputs, signature="tokens", as_dict=True)
+#         pooled_output = tf.expand_dims(bert_outputs["pooled_output"], axis=0)  # (1, 7, 768)
+
+#         logger.debug('BERT Pooled Output {}'.format(str(pooled_output.shape)))
+
+#         if diaID == 0:
+#             pooled_outputs = pooled_output
+#         else:
+#             pooled_outputs = tf.concat([pooled_outputs, pooled_output], axis=0)
+
+#     logger.debug('BERT Pooled Outputs {}'.format(str(pooled_outputs.shape)))  # (3, 7, 768)
+#     return pooled_outputs
+
+
+def bert_preprocess(input_ids, input_mask, segment_ids, bert_module):
+    pooled_outputs = unstack_bert_features(input_ids, input_mask, segment_ids, bert_module)
+    return pooled_outputs
 
 
 def weight_variable(shape, name, reuse=False):
@@ -66,13 +129,17 @@ def maxpool(h, pool_size, strides, name, reuse=False):
 def init_input(doclen, embsize):
     # doclen = 150, embsize = 256
     with tf.name_scope("inputs"):
-        x = tf.placeholder(tf.float32, [None, max_sent, doclen, embsize], name='input_X')
-        y = tf.placeholder(tf.float32, [None, max_sent, NDclasses], name='output_Y')
+        x = tf.placeholder(tf.float32, [INPUT_DIMS, max_sent, sentembsize], name='input_X')
+        input_ids = tf.placeholder(tf.float32, [INPUT_DIMS, max_sent, doclen], name='input_ids')
+        input_masks = tf.placeholder(tf.float32, [INPUT_DIMS, max_sent, doclen], name='input_masks')
+        segment_ids = tf.placeholder(tf.float32, [INPUT_DIMS, max_sent, doclen], name='segment_ids')
+        y = tf.placeholder(tf.float32, [INPUT_DIMS, max_sent, NDclasses], name='output_Y')
         bs = tf.placeholder(tf.int32, [], name='batch_size')
-        turns = tf.placeholder(tf.int32, [None, ], name='turns')
-        masks = tf.placeholder(tf.float32, [None, max_sent, NDclasses], name='masks')
+        turns = tf.placeholder(tf.int32, [INPUT_DIMS, ], name='turns')
+        masks = tf.placeholder(tf.float32, [INPUT_DIMS, max_sent, NDclasses], name='masks')
         num_sent = tf.placeholder(tf.int32, [], name='num_sent')
-    return x, y, bs, turns, masks, num_sent
+    # return x, y, bs, turns, masks, num_sent
+    return x, input_ids, input_masks, segment_ids, y, bs, turns, masks, num_sent
 
 
 def loss_function(pred, y, batch_size, num_sent, masks):
@@ -84,16 +151,20 @@ def loss_function(pred, y, batch_size, num_sent, masks):
         y_sents = tf.unstack(y, axis=1)
         num_sent = tf.cast(num_sent, tf.float32)
 
-        for pred_sent, y_sent in zip(pred_sents, y_sents):  # (?, 7) * 7
+        logger.debug('Loss: pred_sent.shape = {}'.format(str(pred_sents[0].shape)))
+        logger.debug('Loss: y_sent.shape = {}'.format(str(y_sents[0].shape)))
 
-            logger.debug('Loss: pred_sent.shape = {}'.format(str(pred_sent.shape)))
-            logger.debug('Loss: y_sent.shape = {}'.format(str(y_sent.shape)))
+        for pred_sent, y_sent in zip(pred_sents, y_sents):  # (?, 7) * 7
             pred_sent = tf.reshape(pred_sent, [-1, NDclasses])
             y_sent = tf.reshape(y_sent, [-1, NDclasses])
 
             cost += -tf.reduce_sum(y_sent * tf.log(tf.clip_by_value(pred_sent, 1e-10, 1.0)))
 
-    return tf.divide(cost, num_sent)
+        return tf.divide(cost, num_sent)
+
+        # per_example_loss = -tf.reduce_sum(y * pred, axis=-1)
+        # loss = tf.reduce_mean(per_example_loss)
+        # return loss
 
 
 def build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm):
@@ -132,11 +203,9 @@ def build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_nor
                         sentCNN_convA = tf.layers.batch_normalization(sentCNN_convA)
                         sentCNN_convB = tf.layers.batch_normalization(sentCNN_convB)
 
-                logger.debug('sentCNN before maxpool {}'.format(str(sentCNN_convA.shape)))
                 sentCNN_poolA = maxpool(sentCNN_convA, doclen, 1, 'sentCNN_poolA', sentCNNs_reuse)
                 sentCNN_poolB = maxpool(sentCNN_convB, doclen, 1, 'sentCNN_poolB', sentCNNs_reuse)
                 concated = tf.concat([sentCNN_poolA, sentCNN_poolB, speaker], axis=-1, name='sentCNN_concated')
-                logger.debug('sentCNN after maxpool {}'.format(str(sentCNN_poolA.shape)))
 
             if is_first:
                 sentCNNs = concated
@@ -282,12 +351,28 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, masks, keep_prob):
     return fc_outputs
 
 
-def CNNRNN(x, y, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gating, batch_norm, num_layers, masks, memory_rnn_type=None):
+def CNNRNN(x, input_ids, input_masks, segment_ids, y, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gating, batch_norm, num_layers, masks, memory_rnn_type=None):
 
-    print('x.shape', x.shape)
+    # print('x.shape', x.shape)
     # x_split = tf.split(x, max_sent, axis=1)
+    # x_split = tf.unstack(x, axis=1)
+
+    bert_module = hub.Module(bert_hub_model_handle, trainable=True)
+    x = bert_preprocess(input_ids, input_masks, segment_ids, bert_module)
     x_split = tf.unstack(x, axis=1)
-    sentCNNs = build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm)  # Sentence representation
+
+    for i in range(max_sent):
+        if i % 2 == 0:  # customer
+            speaker = tf.fill((bs, 1, 1), 0.0)
+        else:  # helpdesk
+            speaker = tf.fill((bs, 1, 1), 1.0)
+        x_split_expand = tf.expand_dims(x_split[i], axis=1)
+        concated = tf.concat([x_split_expand, speaker], axis=-1, name='speaker_concated')
+        if i == 0:
+            sentCNNs = concated
+        else:
+            sentCNNs = tf.concat([sentCNNs, concated], axis=1, name='sentCNN_concate_sent')
+
     logger.debug('sentCNNs input {}'.format(str(sentCNNs.shape)))
     rnn_output = build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, 'context_RNN', 'Bi-LSTM', keep_prob, num_layers)  # Sentence context
     logger.debug('rnn_output input {}'.format(str(rnn_output.shape)))
@@ -311,45 +396,8 @@ def CNNCNN(x, y, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gat
 
     sentCNNs_reuse = False
     is_first = True
-    sentCNNs = []
 
-    # Sentence CNNs
-    for i, x_sent in enumerate(x_split):
-        if i % 2 == 0:  # customer
-            speaker = tf.fill((bs, 1, 1), 0.0)
-        else:  # helpdesk
-            speaker = tf.fill((bs, 1, 1), 1.0)
-
-        if gating:
-            for layer, Fnum in enumerate(num_filters):
-                sentCNN_convA = conv1d(x_sent, filter_size[0], Fnum, 'sentCNN_convA{}'.format(layer), sentCNNs_reuse)
-                sentCNN_convB = conv1d(x_sent, filter_size[1], Fnum, 'sentCNN_convB{}'.format(layer), sentCNNs_reuse)
-                x_sent = tf.multiply(sentCNN_convA, tf.nn.sigmoid(sentCNN_convB), name='gating{}'.format(layer))
-                if batch_norm:
-                    x_sent = tf.layers.batch_normalization(x_sent)
-
-            sentCNN_pool = maxpool(x_sent, doclen, 1, 'sentCNN_pool', sentCNNs_reuse)
-            concated = tf.concat([sentCNN_pool, speaker], axis=-1)
-
-        else:
-            sentCNN_convA = x_sent
-            sentCNN_convB = x_sent
-            for layer, Fnum in enumerate(num_filters):
-                sentCNN_convA = conv1d(sentCNN_convA, filter_size[0], Fnum, 'sentCNN_convA{}'.format(layer), sentCNNs_reuse)
-                sentCNN_convB = conv1d(sentCNN_convB, filter_size[1], Fnum, 'sentCNN_convB{}'.format(layer), sentCNNs_reuse)
-                if batch_norm:
-                    sentCNN_convA = tf.layers.batch_normalization(sentCNN_convA)
-                    sentCNN_convB = tf.layers.batch_normalization(sentCNN_convB)
-
-            sentCNN_poolA = maxpool(sentCNN_convA, doclen, 1, 'sentCNN_poolA', sentCNNs_reuse)
-            sentCNN_poolB = maxpool(sentCNN_convB, doclen, 1, 'sentCNN_poolB', sentCNNs_reuse)
-            concated = tf.concat([sentCNN_poolA, sentCNN_poolB, speaker], axis=-1)
-
-        if is_first:
-            sentCNNs_reuse = True
-            is_first = False
-
-        sentCNNs.append(concated)
+    sentCNNs = x
 
     # Prepare Context CNN
     sentCNN_shape = sentCNNs[0].shape

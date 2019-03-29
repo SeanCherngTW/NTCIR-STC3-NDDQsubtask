@@ -34,8 +34,8 @@ class DataHelper:
             self.train_en = json.load(f)
         self.stctokenizer = stctokenizer.STCTokenizer()
 
-        self.train_corpus = pickle.load(open("train_corpus.p", "rb"))
-        self.dev_corpus = pickle.load(open("dev_corpus.p", "rb"))
+        self.train_corpus = pickle.load(open("PickleCorpus/train_corpus.p", "rb"))
+        self.dev_corpus = pickle.load(open("PickleCorpus/dev_corpus.p", "rb"))
         self.test_corpus = self.get_raw_corpus('test')
         self.word_vectors = KeyedVectors.load(embedding_path)
         self.testIDs = [corpus[0] for corpus in self.test_corpus]

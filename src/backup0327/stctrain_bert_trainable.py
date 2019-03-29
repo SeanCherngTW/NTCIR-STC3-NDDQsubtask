@@ -14,8 +14,9 @@ import tensorflow as tf
 import datahelper
 import stctokenizer
 import stcevaluation as STCE
-import nuggetdetectionBERT as ND
+import nuggetdetectionBERT_Trainable as ND
 import tensorflow_hub as hub
+from bert import optimization
 
 logger = logging.getLogger('Training')
 
@@ -43,26 +44,26 @@ def get_data():
 
 
 def unstack_bert_features(input_ids, input_mask, segment_ids, bert_module):
-    unstacked_input_ids = []
-    unstacked_input_mask = []
-    unstacked_segment_ids = []
+    input_ids = tf.cast(tf.reshape(input_ids, [-1, doclen]), tf.int32)
+    input_mask = tf.cast(tf.reshape(input_mask, [-1, doclen]), tf.int32)
+    segment_ids = tf.cast(tf.reshape(segment_ids, [-1, doclen]), tf.int32)
 
-    for idx, (_id, mask, segid) in enumerate(zip(input_ids, input_mask, segment_ids)):
-        bert_inputs = dict(
-            input_ids=_id,
-            input_mask=mask,
-            segment_ids=segid,
-        )
-        print('hi')
+    logger.debug('BERT Input Features {}'.format(str(input_ids.shape)))
 
-        bert_outputs = bert_module(bert_inputs, signature="tokens", as_dict=True)
-        pooled_output = bert_outputs["pooled_output"]
-        if idx == 0:
-            pooled_outputs = tf.expand_dims(pooled_output, axis=0)
-        else:
-            pooled_outputs = tf.concat([pooled_outputs, tf.expand_dims(pooled_output, axis=0)], axis=0)
-    print(pooled_outputs.shape)
-    return pooled_outputs
+    bert_inputs = dict(
+        input_ids=input_ids,
+        input_mask=input_mask,
+        segment_ids=segment_ids,
+    )
+
+    bert_outputs = bert_module(bert_inputs, signature="tokens", as_dict=True)
+    pooled_output = bert_outputs["pooled_output"]
+    logger.debug('BERT Pooled Output before expand dim {}'.format(str(pooled_output.shape)))
+    pooled_output = tf.expand_dims(pooled_output, axis=0)
+    # pooled_output = tf.reshape(pooled_output, [-1, max_sent, 768])
+
+    logger.debug('BERT Pooled Output after expand dim {}'.format(str(pooled_output.shape)))
+    return pooled_output
 
 
 def bert_preprocess(input_ids, input_mask, segment_ids, bert_module):
@@ -79,17 +80,21 @@ def start_trainND(
     assert method.__name__ in ['CNNRNN', 'CNNCNN']
 
     tf.reset_default_graph()
-    x, y, bs, turns, masks, num_sent = ND.init_input(doclen, embsize)
+    # x, y, bs, turns, masks, num_sent = ND.init_input(doclen, embsize)
+    x, input_ids, input_masks, segment_ids, y, bs, turns, masks, num_sent = ND.init_input(doclen, embsize)
 
     pred = method(x, y, bs, turns, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, masks, memory_rnn_type)
     with tf.name_scope('loss'):
         cost = ND.loss_function(pred, y, batch_size, num_sent, masks)
 
-    with tf.name_scope('train'):
-        train_op = tf.train.AdamOptimizer(lr).minimize(cost)
-
     len_train = len(trainX)
     len_dev = len(devX)
+
+    with tf.name_scope('train'):
+        num_train_steps = int(len_train / batch_size * epoch)
+        num_warmup_steps = int(num_train_steps * 0.1)
+        train_op = optimization.create_optimizer(cost, lr, num_train_steps, num_warmup_steps, use_tpu=False)
+        # train_op = tf.train.AdamOptimizer(lr).minimize(cost)
 
     pred_test = None
 
@@ -109,6 +114,7 @@ def start_trainND(
         sess.run(tf.global_variables_initializer())
         trainX_input_ids, trainX_input_masks, trainX_segment_ids, devX_input_ids, devX_input_masks, devX_segment_ids, testX_input_ids, testX_input_masks, testX_segment_ids = get_data()
         for e in range(epoch):
+            print('Start epoch {}'.format(e + 1))
             merge = list(zip(trainX_input_ids, trainX_input_masks, trainX_segment_ids, trainY, train_turns, train_masks))
             random.shuffle(merge)
             trainX_input_ids, trainX_input_masks, trainX_segment_ids, trainY, train_turns, train_masks = zip(*merge)
@@ -116,9 +122,11 @@ def start_trainND(
 
             for i in range(0, len_train, batch_size):
                 j = i + batch_size
+                print('Start batch {}-{}/{}'.format(i, j, len_train))
                 pooled_output = bert_preprocess(trainX_input_ids[i:j], trainX_input_masks[i:j], trainX_segment_ids[i:j], bert_module)
+                pooled_output = pooled_output.eval(session=sess)
                 train_bs = batch_size if j < len_train else len_train - i
-                sess.run(train_op, feed_dict={x: pooled_output.eval(), y: trainY[i:j], bs: train_bs,
+                sess.run(train_op, feed_dict={input_ids: trainX_input_ids[i:j], input_masks: trainX_input_masks[i:j], segment_ids: trainX_segment_ids[i:j], y: trainY[i:j], bs: train_bs,
                                               turns: train_turns[i:j], masks: train_masks[i:j], num_sent: train_num_sent, })
 
             # # Compute train loss in batch since memory is not enough
@@ -133,13 +141,13 @@ def start_trainND(
             dev_loss = 0
             for i in range(0, len_dev, batch_size):
                 j = i + batch_size
-                pooled_output = bert_preprocess(devX_input_ids[i:j], devX_input_masks[i:j], devX_segment_ids[i:j], bert_module)
+                # pooled_output = bert_preprocess(devX_input_ids[i:j], devX_input_masks[i:j], devX_segment_ids[i:j], bert_module)
                 dev_bs = len(devND[i:j])
-                dev_loss += sess.run(cost, feed_dict={x: pooled_output, y: devND[i:j], bs: dev_bs,
-                                                      turns: dev_turns[i:j], masks: dev_masks[i:j], num_sent: dev_num_sent})
+                dev_loss += sess.run(cost, feed_dict={input_ids: devX_input_ids[i:j], input_masks: devX_input_masks[i:j], segment_ids: devX_segment_ids[i:j], y: devND[i:j], bs: dev_bs, turns: dev_turns[i:j], masks: dev_masks[i:j], num_sent: dev_num_sent})
 
             # train_losses.append(train_loss)
             dev_losses.append(dev_loss)
+            print('DEV LOSS ', dev_loss)
 
             if dev_loss >= min_dev_loss:
                 current_early_stoping += 1
@@ -151,9 +159,16 @@ def start_trainND(
 
             if current_early_stoping >= early_stopping or (e + 1) == epoch:
                 saver.restore(sess, './tmp/best_params')
-                pooled_output = bert_preprocess(devX_input_ids, devX_input_masks, devX_segment_ids, bert_module)
-                pred_dev = sess.run(pred, feed_dict={x: pooled_output, bs: len_dev, turns: dev_turns, masks: dev_masks})
 
+                pred_dev = []
+
+                for i in range(0, len_dev, batch_size):
+                    j = i + batch_size
+                    # pooled_output = bert_preprocess(devX_input_ids[i:j], devX_input_masks[i:j], devX_segment_ids[i:j], bert_module)
+                    dev_bs = len(devND[i:j])
+                    pred_dev += sess.run(pred, feed_dict={input_ids: devX_input_ids[i:j], input_masks: devX_input_masks[i:j], segment_ids: devX_segment_ids[i:j], bs: dev_bs, turns: dev_turns[i:j], masks: dev_masks[i:j]})
+
+                # pooled_output = bert_preprocess(devX_input_ids, devX_input_masks, devX_segment_ids, bert_module)
                 RNSS, JSD = STCE.nugget_evaluation(pred_dev, devND, dev_turns, dev_masks)
                 args = [method.__name__, e + 1, gating, bn, filter_size_str, hiddens, num_filters_str, kp, "{:.4f}".format(JSD), "{:.4f}".format(RNSS)]
                 argstr = '|'.join(map(str, args))
@@ -161,8 +176,13 @@ def start_trainND(
                 break
 
         if evaluate:
-            pooled_output = bert_preprocess(testX_input_ids, testX_input_masks, testX_segment_ids, bert_module)
-            pred_test = sess.run(pred, feed_dict={x: pooled_output, bs: len(testX), turns: test_turns, masks: test_masks})
+            # pooled_output = bert_preprocess(testX_input_ids, testX_input_masks, testX_segment_ids, bert_module)
+            pred_test = []
+            for i in range(0, 390, batch_size):
+                j = i + batch_size
+                # pooled_output = bert_preprocess(testX_input_ids[i:j], testX_input_masks[i:j], testX_segment_ids[i:j], bert_module)
+                test_bs = len(testX_input_ids[i:j])
+                pred_test += sess.run(pred, feed_dict={input_ids: testX_input_ids[i:j], input_masks: testX_input_masks[i:j], segment_ids: testX_segment_ids[i:j], bs: test_bs, turns: test_turns[i:j], masks: test_masks[i:j]})
 
         return pred_test, train_losses, dev_losses
 

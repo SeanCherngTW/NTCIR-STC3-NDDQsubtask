@@ -103,7 +103,7 @@ def build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_nor
 
                 sentCNN_poolA = maxpool(sentCNN_convA, doclen, 1, 'sentCNN_poolA', sentCNNs_reuse)
                 sentCNN_poolB = maxpool(sentCNN_convB, doclen, 1, 'sentCNN_poolB', sentCNNs_reuse)
-                concated = tf.concat([sentCNN_poolA, sentCNN_poolB, speaker, tf.expand_dims(nd[i], axis=1)], axis=-1, name='sentCNN_concated')
+                concated = tf.concat([sentCNN_poolA, speaker, tf.expand_dims(nd[i], axis=1)], axis=-1, name='sentCNN_concated')
 
             logger.debug('sentCNN output shape {}'.format(concated.shape))
 
@@ -179,30 +179,36 @@ def memory_enhanced(rnn_output, input_memory, output_memory):
                 # sent_t = (?, 1024), context_i = (?, 1024), _attention = (?, )
                 _attention = tf.reduce_sum(tf.multiply(sent_t, context_i), axis=1)
                 attention_at_time_t.append(_attention)
+                logger.debug('Ai {}'.format(str(_attention.shape)))
 
             # attention_at_time_t = 7 * (?, ) --stack--> (?, 7), attention_weight_at_time_t = (?, 7)
             # attention_weight_at_time_t = tf.nn.tanh(tf.stack(attention_at_time_t, axis=1))
             attention_weight_at_time_t = tf.nn.softmax(tf.stack(attention_at_time_t, axis=1))
+            logger.debug('A {}'.format(str(attention_weight_at_time_t.shape)))
             attention_weight_at_time_t = tf.reshape(attention_weight_at_time_t, [-1, max_sent, 1])  # boardcast weight
 
             # attention_weight_at_time_t = (?, 7), output_memory = (?, 7, 1024), weighted_output_memory = (?, 7, 1024)
-            logger.debug('attention_weight_at_time_t {}'.format(str(attention_weight_at_time_t.shape)))
-            logger.debug('output_memory {}'.format(str(output_memory.shape)))
+            logger.debug('I {}'.format(str(tf.stack(input_memory, axis=1).shape)))
+            logger.debug('O {}'.format(str(output_memory.shape)))
             weighted_output_memory = tf.multiply(output_memory, attention_weight_at_time_t)
-            logger.debug('weighted_output_memory {}'.format(str(weighted_output_memory.shape)))
+            logger.debug('O mutiply A {}'.format(str(weighted_output_memory.shape)))
 
             # weighted_output_memory = (?, 7, 1024), weighted_sum = (?, 1024)
             weighted_sum = tf.reduce_sum(weighted_output_memory, axis=1)
+            logger.debug('O mutiply A sum {}'.format(str(weighted_sum.shape)))
 
             # sent_t_with_memory = (?, 1024)
             sent_t_with_memory = tf.add(weighted_sum, sent_t)
             sent_t_with_memory = tf.expand_dims(sent_t_with_memory, axis=1)
+            logger.debug('mliDQ {}'.format(str(sent_t_with_memory.shape)))
 
             if is_first:
                 sents_with_memory = sent_t_with_memory
                 is_first = False
             else:
                 sents_with_memory = tf.concat([sents_with_memory, sent_t_with_memory], axis=1)
+
+        logger.debug('mlDQ {}'.format(str(sents_with_memory.shape)))
 
     return sents_with_memory  # (?, 7, 1024)
 
