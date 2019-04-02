@@ -53,6 +53,28 @@ def RSNOD(pred, truth):
     return np.sqrt((sod / (len(pred) - 1)))
 
 
+def nugget_evaluation_CRF(pred, y):
+    correct = 0
+    total = 0
+    confusion_matrix = [[0] * NDclasses for i in range(NDclasses)]
+    for pred_sents, y_sents in zip(pred, y):  # (7, 7)
+        for pred_sentidx, y_sentidxs in zip(pred_sents, y_sents):  # (7)
+            if isinstance(y_sentidxs, np.ndarray):
+                for y_sentidx in y_sentidxs:
+                    confusion_matrix[pred_sentidx][y_sentidx] += 1
+                correct = correct + 1 if pred_sentidx in y_sentidxs else correct
+            else:
+                if y_sentidxs == 7:
+                    break
+                else:
+                    y_sentidx = y_sentidxs
+                    confusion_matrix[pred_sentidx][y_sentidx] += 1
+                    correct = correct + 1 if pred_sentidx == y_sentidx else correct
+            total += 1
+    acc = correct / total
+    return confusion_matrix, acc
+
+
 def nugget_evaluation(pred, y, turns, masks):
     # pred = y = (?, 7, 7)
     total_RNSS = 0
