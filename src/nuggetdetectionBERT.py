@@ -265,7 +265,18 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, masks, keep_prob):
             fc1_out = tf.matmul(rnn_output, fc1_W) + fc1_b
             y_pre = tf.nn.softmax(fc1_out)  # (?, 7)
 
-            # y_pre = tf.multiply(y_pre, speaker_mask)
+            # fc1_W = weight_variable([rnn_output.shape[1], rnn_hiddens], name='fc1_W', reuse=fc_reuse)
+            # fc1_b = bias_variable([rnn_hiddens, ], name='fc1_b', reuse=fc_reuse)
+            # fc1_out = tf.matmul(rnn_output, fc1_W) + fc1_b
+
+            # if batch_norm:
+            #     fc1_out = tf.layers.batch_normalization(fc1_out)
+
+            # fc2_W = weight_variable([rnn_hiddens, NDclasses], name='fc2_W', reuse=fc_reuse)
+            # fc2_b = bias_variable([NDclasses, ], name='fc2_b', reuse=fc_reuse)
+            # fc2_out = tf.matmul(fc1_out, fc2_W) + fc2_b
+
+            # y_pre = tf.nn.softmax(fc2_out)  # (?, 7)
 
             y_pre = tf.expand_dims(y_pre, axis=1)
 
@@ -308,6 +319,7 @@ def CNNRNN(x, y, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, ga
         output_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'output_memory', memory_rnn_type, keep_prob, 1)
         rnn_output = memory_enhanced(rnn_output, input_memory, output_memory)
 
+    # rnn_output = sentCNNs
     fc_outputs = build_FC(bs, rnn_output, rnn_hiddens, batch_norm, masks, keep_prob)
     # viterbi_sequence, viterbi_score = build_CRF(fc_outputs, y, turns)
 

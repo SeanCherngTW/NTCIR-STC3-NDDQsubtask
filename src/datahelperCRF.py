@@ -29,14 +29,16 @@ class DataHelper:
         self.glove_300d = pickle.load(open('GloVe_840B_300d.p', 'rb'))
 
         with open('../data/test_data_en.json', encoding='utf8') as f:
-            self.test_en = json.load(f)
+            self.dev_en = json.load(f)
         with open('../data/train_data_en.json', encoding='utf8') as f:
             self.train_en = json.load(f)
+        with open('../data/stc3-nddq-test-annotations.json', encoding='utf8') as f:
+            self.test_en = json.load(f)
         self.stctokenizer = stctokenizer.STCTokenizer()
 
         self.train_corpus = pickle.load(open("PickleCorpus/train_corpus.p", "rb"))
         self.dev_corpus = pickle.load(open("PickleCorpus/dev_corpus.p", "rb"))
-        self.test_corpus = self.get_raw_corpus('test')
+        self.test_corpus = pickle.load(open("PickleCorpus/test_corpus_with_label.p", "rb"))
         self.word_vectors = KeyedVectors.load(embedding_path)
         self.testIDs = [corpus[0] for corpus in self.test_corpus]
 
@@ -45,12 +47,16 @@ class DataHelper:
         self.embsize = word_vectors['a'].shape[0]
 
     def get_corpus(self, name):
-        if name not in ['train', 'test']:
+        if name not in ['train', 'test', '']:
             raise ValueError('name must be train or test')
         if name == 'train':
             dataset = self.train_en
-        else:
+        elif name == 'dev':
+            dataset = self.dev_en
+        elif name == 'test':
             dataset = self.test_en
+        else:
+            raise NameError('name must be train, dev or test')
         customer_corpus = []
         helpdesk_corpus = []
         for data in dataset:
@@ -85,13 +91,15 @@ class DataHelper:
 
         return customer_corpus, helpdesk_corpus
 
-    def get_raw_corpus(self, name):
-        if name not in ['train', 'test']:
-            raise ValueError('name must be train or test')
+    def get_raw_corpus(self, name, withlabel=True):
         if name == 'train':
             dataset = self.train_en
-        else:
+        elif name == 'dev':
+            dataset = self.dev_en
+        elif name == 'test':
             dataset = self.test_en
+        else:
+            raise NameError('name must be train, dev, test')
         customer_corpus = []
         helpdesk_corpus = []
         raw_corpus = []
@@ -104,7 +112,7 @@ class DataHelper:
             for tag in turns:
                 utts.append(tag['utterances'])
 
-            if name == 'train':
+            if withlabel:
                 for tag in data['annotations']:
                     nuggets.append(tag['nugget'])
                     quality.append(tag['quality'])
@@ -120,7 +128,7 @@ class DataHelper:
                 sender = turn['sender']
                 corpus_token = []
                 if sender == 'customer':
-                    if name == 'train':
+                    if withlabel:
                         turn_sender.append('customer')
                         turn_corpus.append(' '.join(utt))
                         turn_nugget.append(utt_nuggets[idx][1])
@@ -128,7 +136,7 @@ class DataHelper:
                         turn_sender.append('customer')
                         turn_corpus.append(' '.join(utt))
                 elif sender == 'helpdesk':
-                    if name == 'train':
+                    if withlabel:
                         turn_sender.append('helpdesk')
                         turn_corpus.append(' '.join(utt))
                         turn_nugget.append(utt_nuggets[idx][1])
@@ -138,10 +146,7 @@ class DataHelper:
                 else:
                     assert False, 'Sender name error'
 
-            if name == 'train':
-                raw_corpus.append((id, turn_sender, turn_corpus, turn_nugget, DQ))
-            else:
-                raw_corpus.append((id, turn_sender, turn_corpus))
+            raw_corpus.append((id, turn_sender, turn_corpus, turn_nugget, DQ))
 
         return raw_corpus
 
@@ -334,8 +339,10 @@ class DataHelper:
             corpus = self.train_corpus
         elif data_type == 'dev':
             corpus = self.dev_corpus
+        elif data_type == 'test':
+            corpus = self.test_corpus
         else:
-            raise NameError('Parameter "data_type" must be "train" or "dev"')
+            raise NameError('Parameter "data_type" must be "train" or "dev" or "test"')
 
         if emb == 'glove':
             embedding_index = self.glove_300d

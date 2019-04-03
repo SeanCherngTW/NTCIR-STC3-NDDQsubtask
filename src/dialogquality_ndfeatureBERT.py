@@ -1,4 +1,5 @@
 import os
+import numpy as np
 import param
 import timeit
 import logging
@@ -350,9 +351,11 @@ def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating
         output_memory = build_RNN(contextCNNs, bs, turns, fc_hiddens, batch_norm, 'output_memory', memory_rnn_type, keep_prob=1, num_layers=1)
         contextCNNs = memory_enhanced(contextCNNs, input_memory, output_memory)
 
+    # contextCNNs = sentCNNs
+
     logger.debug('contextCNNs output shape {}'.format(str(contextCNNs.shape)))
-    _, num_sent, num_features = contextCNNs.shape
-    contextCNNs = tf.reshape(contextCNNs, [-1, num_sent * num_features])
+    # _, num_sent, num_features = contextCNNs.shape
+    contextCNNs = tf.reshape(contextCNNs, [-1, 7 * 1032])
 
     # contextCNNs = tf.reduce_mean(contextCNNs, axis=1)
 
