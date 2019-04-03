@@ -25,7 +25,7 @@ max_sent = param.max_sent
 NDclasses = param.NDclasses
 config = tf.ConfigProto()
 # config.gpu_options.allow_growth = True
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
 def start_trainND(
