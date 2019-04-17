@@ -309,17 +309,17 @@ def CNNRNN(x, y, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, ga
         else:
             sentCNNs = tf.concat([sentCNNs, concated], axis=1, name='sentCNN_concate_sent')
 
-    logger.debug('sentCNNs input {}'.format(str(sentCNNs.shape)))
-    rnn_output = build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, 'context_RNN', 'Bi-LSTM', keep_prob, num_layers)  # Sentence context
-    logger.debug('rnn_output input {}'.format(str(rnn_output.shape)))
+    # logger.debug('sentCNNs input {}'.format(str(sentCNNs.shape)))
+    # rnn_output = build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, 'context_RNN', 'Bi-LSTM', keep_prob, num_layers)  # Sentence context
+    # logger.debug('rnn_output input {}'.format(str(rnn_output.shape)))
 
-    # Memory enhanced structure
-    if memory_rnn_type:
-        input_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'input_memory', memory_rnn_type, keep_prob, 1)
-        output_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'output_memory', memory_rnn_type, keep_prob, 1)
-        rnn_output = memory_enhanced(rnn_output, input_memory, output_memory)
+    # # Memory enhanced structure
+    # if memory_rnn_type:
+    #     input_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'input_memory', memory_rnn_type, keep_prob, 1)
+    #     output_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'output_memory', memory_rnn_type, keep_prob, 1)
+    #     rnn_output = memory_enhanced(rnn_output, input_memory, output_memory)
 
-    # rnn_output = sentCNNs
+    rnn_output = sentCNNs
     fc_outputs = build_FC(bs, rnn_output, rnn_hiddens, batch_norm, masks, keep_prob)
     # viterbi_sequence, viterbi_score = build_CRF(fc_outputs, y, turns)
 

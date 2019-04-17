@@ -288,7 +288,7 @@ def CNNRNN(x, y, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, ga
     # x_split = tf.split(x, max_sent, axis=1)
     x_split = tf.unstack(x, axis=1)
     sentCNNs = build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm)  # Sentence representation
-    logger.debug('sentCNNs input {}'.format(str(sentCNNs.shape)))
+    logger.debug('sentCNNs output {}'.format(str(sentCNNs.shape)))
     rnn_output = build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, 'context_RNN', 'Bi-LSTM', keep_prob, num_layers)  # Sentence context
     logger.debug('rnn_output input {}'.format(str(rnn_output.shape)))
 
