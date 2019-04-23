@@ -244,24 +244,6 @@ def init_input(doclen, embsize):
     return x, y, bs, turns, num_dialog, nd
 
 
-def CNNRNN(x, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gating, batch_norm, num_layers, nd, memory_rnn_type=None):
-    x_split = tf.unstack(x, axis=1)
-    sentCNNs = build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm, nd)  # Sentence representation
-    logger.debug('sentCNNs input {}'.format(str(sentCNNs.shape)))
-    rnn_output = build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, 'context_RNN', 'Bi-LSTM', keep_prob=1, num_layers=num_layers)
-    logger.debug('rnn_output input {}'.format(str(rnn_output.shape)))
-
-    # Memory enhanced structure
-    if memory_rnn_type:
-        input_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'input_memory', memory_rnn_type, keep_prob=1, num_layers=1)
-        output_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'output_memory', memory_rnn_type, keep_prob=1, num_layers=1)
-        rnn_output = memory_enhanced(rnn_output, input_memory, output_memory)
-
-    y_pre = build_FC(rnn_output, rnn_hiddens, batch_norm, 'last')
-
-    return y_pre
-
-
 def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating, batch_norm, num_layers, nd, memory_rnn_type=None):
     x_split = tf.unstack(x, axis=1)
     nd_split = tf.unstack(nd, axis=1)
@@ -340,25 +322,17 @@ def CNNCNN(x, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating
             is_first = False
         else:
             contextCNNs = tf.concat([contextCNNs, concated], axis=1)
-        # features = concated.shape[-1]
-        # contextCNNs[i] = tf.reshape(concated, [-1, features])
 
     logger.debug('contextCNNs output shape {}'.format(str(contextCNNs.shape)))
 
-    # memory_rnn_type = 'Bi-GRU'
     if memory_rnn_type:
         input_memory = build_RNN(contextCNNs, bs, turns, fc_hiddens, batch_norm, 'input_memory', memory_rnn_type, keep_prob=1, num_layers=1)
         output_memory = build_RNN(contextCNNs, bs, turns, fc_hiddens, batch_norm, 'output_memory', memory_rnn_type, keep_prob=1, num_layers=1)
         contextCNNs = memory_enhanced(contextCNNs, input_memory, output_memory)
 
-    # contextCNNs = sentCNNs
-
     logger.debug('contextCNNs output shape {}'.format(str(contextCNNs.shape)))
-    # _, num_sent, num_features = contextCNNs.shape
-    contextCNNs = tf.reshape(contextCNNs, [-1, 7 * 1032])
-
-    # contextCNNs = tf.reduce_mean(contextCNNs, axis=1)
-
+    _, num_sent, num_features = contextCNNs.shape
+    contextCNNs = tf.reshape(contextCNNs, [-1, num_sent * num_features])
     logger.debug('FC input shape {}'.format(str(contextCNNs.shape)))
 
     contextCNNs = tf.nn.dropout(contextCNNs, keep_prob)

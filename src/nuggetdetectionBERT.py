@@ -79,8 +79,6 @@ def init_input(doclen, embsize):
 def loss_function(pred, y, batch_size, num_sent, masks):
     with tf.name_scope('Loss'):
         cost = 0
-        # pred_masked = tf.multiply(pred, masks)
-        # pred_sents = tf.unstack(pred_masked, axis=1)
         pred_sents = tf.unstack(pred, axis=1)
         y_sents = tf.unstack(y, axis=1)
         num_sent = tf.cast(num_sent, tf.float32)
@@ -95,55 +93,6 @@ def loss_function(pred, y, batch_size, num_sent, masks):
             cost += -tf.reduce_sum(y_sent * tf.log(tf.clip_by_value(pred_sent, 1e-10, 1.0)))
 
     return tf.divide(cost, num_sent)
-
-
-def build_multistackCNN(x_split, bs, filter_size, num_filters, gating, batch_norm):
-    is_first = True
-    sentCNNs_reuse = False
-
-    with tf.name_scope('SentCNN'):
-        for i, x_sent in enumerate(x_split):
-            # print('CNN input shape', x_sent.shape)
-
-            if i % 2 == 0:  # customer
-                speaker = tf.fill((bs, 1, 1), 0.0)
-            else:  # helpdesk
-                speaker = tf.fill((bs, 1, 1), 1.0)
-
-            if gating:
-                for layer, Fnum in enumerate(num_filters, 1):
-                    sentCNN_convA = conv1d(x_sent, filter_size[0], Fnum, 'sentCNN_convA{}'.format(layer), sentCNNs_reuse)
-                    sentCNN_convB = conv1d(x_sent, filter_size[1], Fnum, 'sentCNN_convB{}'.format(layer), sentCNNs_reuse)
-                    x_sent = tf.multiply(sentCNN_convA, tf.nn.sigmoid(sentCNN_convB), name='gating{}'.format(layer))
-                    if batch_norm:
-                        x_sent = tf.layers.batch_normalization(x_sent)
-
-                sentCNN_pool = maxpool(x_sent, doclen, 1, 'sentCNN_pool', sentCNNs_reuse)
-                concated = tf.concat([sentCNN_pool, speaker], axis=-1, name='sentCNN_concated')
-
-            else:
-                sentCNN_convA = x_sent
-                sentCNN_convB = x_sent
-                for layer, Fnum in enumerate(num_filters, 1):
-                    sentCNN_convA = conv1d(sentCNN_convA, filter_size[0],
-                                           Fnum, 'sentCNN_convA{}'.format(layer), sentCNNs_reuse)
-                    sentCNN_convB = conv1d(sentCNN_convB, filter_size[1],
-                                           Fnum, 'sentCNN_convB{}'.format(layer), sentCNNs_reuse)
-                    if batch_norm:
-                        sentCNN_convA = tf.layers.batch_normalization(sentCNN_convA)
-                        sentCNN_convB = tf.layers.batch_normalization(sentCNN_convB)
-
-                sentCNN_poolA = maxpool(sentCNN_convA, doclen, 1, 'sentCNN_poolA', sentCNNs_reuse)
-                sentCNN_poolB = maxpool(sentCNN_convB, doclen, 1, 'sentCNN_poolB', sentCNNs_reuse)
-                concated = tf.concat([sentCNN_poolA, sentCNN_poolB, speaker], axis=-1, name='sentCNN_concated')
-
-            if is_first:
-                sentCNNs = concated
-                sentCNNs_reuse = True
-                is_first = False
-            else:
-                sentCNNs = tf.concat([sentCNNs, concated], axis=1, name='sentCNN_concate_sent')
-    return sentCNNs
 
 
 def build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, name, rnn_type, keep_prob, num_layers):
@@ -265,19 +214,6 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, masks, keep_prob):
             fc1_out = tf.matmul(rnn_output, fc1_W) + fc1_b
             y_pre = tf.nn.softmax(fc1_out)  # (?, 7)
 
-            # fc1_W = weight_variable([rnn_output.shape[1], rnn_hiddens], name='fc1_W', reuse=fc_reuse)
-            # fc1_b = bias_variable([rnn_hiddens, ], name='fc1_b', reuse=fc_reuse)
-            # fc1_out = tf.matmul(rnn_output, fc1_W) + fc1_b
-
-            # if batch_norm:
-            #     fc1_out = tf.layers.batch_normalization(fc1_out)
-
-            # fc2_W = weight_variable([rnn_hiddens, NDclasses], name='fc2_W', reuse=fc_reuse)
-            # fc2_b = bias_variable([NDclasses, ], name='fc2_b', reuse=fc_reuse)
-            # fc2_out = tf.matmul(fc1_out, fc2_W) + fc2_b
-
-            # y_pre = tf.nn.softmax(fc2_out)  # (?, 7)
-
             y_pre = tf.expand_dims(y_pre, axis=1)
 
             if is_first:
@@ -287,15 +223,11 @@ def build_FC(bs, rnn_outputs, rnn_hiddens, batch_norm, masks, keep_prob):
             else:
                 fc_outputs = tf.concat([fc_outputs, y_pre], axis=1)
 
-            prev_nd = y_pre
-
     return fc_outputs
 
 
 def CNNRNN(x, y, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, gating, batch_norm, num_layers, masks, memory_rnn_type=None):
 
-    # print('x.shape', x.shape)
-    # x_split = tf.split(x, max_sent, axis=1)
     x_split = tf.unstack(x, axis=1)
     for i in range(max_sent):
         if i % 2 == 0:  # customer
@@ -307,118 +239,17 @@ def CNNRNN(x, y, bs, turns, keep_prob, rnn_hiddens, filter_size, num_filters, ga
         if i == 0:
             sentCNNs = concated
         else:
-            sentCNNs = tf.concat([sentCNNs, concated], axis=1, name='sentCNN_concate_sent')
+            sentCNNs = tf.concat([sentCNNs, concated], axis=1, name='sentCNN_concat_sent')
 
-    # logger.debug('sentCNNs input {}'.format(str(sentCNNs.shape)))
-    # rnn_output = build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, 'context_RNN', 'Bi-LSTM', keep_prob, num_layers)  # Sentence context
-    # logger.debug('rnn_output input {}'.format(str(rnn_output.shape)))
+    logger.debug('sentCNNs input {}'.format(str(sentCNNs.shape)))
+    rnn_output = build_RNN(sentCNNs, bs, turns, rnn_hiddens, batch_norm, 'context_RNN', 'Bi-LSTM', keep_prob, num_layers)  # Sentence context
+    logger.debug('rnn_output input {}'.format(str(rnn_output.shape)))
 
-    # # Memory enhanced structure
-    # if memory_rnn_type:
-    #     input_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'input_memory', memory_rnn_type, keep_prob, 1)
-    #     output_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'output_memory', memory_rnn_type, keep_prob, 1)
-    #     rnn_output = memory_enhanced(rnn_output, input_memory, output_memory)
+    # Memory enhanced structure
+    if memory_rnn_type:
+        input_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'input_memory', memory_rnn_type, keep_prob, 1)
+        output_memory = build_RNN(rnn_output, bs, turns, rnn_hiddens, batch_norm, 'output_memory', memory_rnn_type, keep_prob, 1)
+        rnn_output = memory_enhanced(rnn_output, input_memory, output_memory)
 
-    rnn_output = sentCNNs
     fc_outputs = build_FC(bs, rnn_output, rnn_hiddens, batch_norm, masks, keep_prob)
-    # viterbi_sequence, viterbi_score = build_CRF(fc_outputs, y, turns)
-
-    # return viterbi_score
-    return fc_outputs
-
-
-def CNNCNN(x, y, bs, turns, keep_prob, fc_hiddens, filter_size, num_filters, gating, batch_norm, masks):
-
-    x_split = tf.unstack(x, axis=1)
-
-    sentCNNs_reuse = False
-    is_first = True
-
-    sentCNNs = x
-
-    # Prepare Context CNN
-    sentCNN_shape = sentCNNs[0].shape
-    contextCNNs = []
-    contextCNNs_reuse = False
-    is_first = True
-    for i in range(max_sent):
-        if i == 0:
-            start = tf.fill((bs, 1, sentCNN_shape[-1]), 0.0)  # start補零
-            contextCNNs.append(tf.concat([start, sentCNNs[i], sentCNNs[i + 1]], axis=-1))
-        elif i == max_sent - 1:
-            end = tf.fill((bs, 1, sentCNN_shape[-1]), 0.0)  # end 補零
-            contextCNNs.append(tf.concat([sentCNNs[i - 1], sentCNNs[i], end], axis=-1))
-        else:
-            contextCNNs.append(tf.concat([sentCNNs[i - 1], sentCNNs[i], sentCNNs[i + 1]], axis=-1))
-
-    # Context CNNs
-    for i, x_context in enumerate(contextCNNs):
-        if gating:
-            for layer, Fnum in enumerate(num_filters):
-                contextCNN_convA = conv1d(x_context, filter_size[0], Fnum, 'contextCNN_convA{}'.format(layer), contextCNNs_reuse)
-                contextCNN_convB = conv1d(x_context, filter_size[1], Fnum, 'contextCNN_convB{}'.format(layer), contextCNNs_reuse)
-                x_context = tf.multiply(contextCNN_convA, tf.nn.sigmoid(contextCNN_convB), name='context_gating{}'.format(layer))
-                if batch_norm:
-                    x_context = tf.layers.batch_normalization(x_context)
-
-            # (?, 1, 128) -> (?, 1, 64)
-            contextCNN_pool = maxpool(x_context, 1, 2, 'contextCNN_pool', contextCNNs_reuse)
-            concated = contextCNN_pool
-
-        else:
-            contextCNN_convA = x_context
-            contextCNN_convB = x_context
-            for layer, Fnum in enumerate(num_filters):
-                contextCNN_convA = conv1d(contextCNN_convA, filter_size[0],
-                                          Fnum, 'contextCNN_convA{}'.format(layer), contextCNNs_reuse)
-                contextCNN_convB = conv1d(contextCNN_convB, filter_size[1],
-                                          Fnum, 'contextCNN_convB{}'.format(layer), contextCNNs_reuse)
-                if batch_norm:
-                    contextCNN_convA = tf.layers.batch_normalization(contextCNN_convA)
-                    contextCNN_convB = tf.layers.batch_normalization(contextCNN_convB)
-
-            # (?, 1, 128) -> (?, 1, 64)
-            contextCNN_poolA = maxpool(contextCNN_convA, 1, 2, 'contextCNN_poolA', contextCNNs_reuse)
-            contextCNN_poolB = maxpool(contextCNN_convB, 1, 2, 'contextCNN_poolB', contextCNNs_reuse)
-            concated = tf.concat([contextCNN_poolA, contextCNN_poolB], axis=-1)
-
-        if is_first:
-            contextCNNs_reuse = True
-            is_first = False
-
-        features = concated.shape[-1]
-        contextCNNs[i] = tf.reshape(concated, [-1, features])
-
-    features = contextCNNs[i].shape[-1]
-    fc_reuse = False
-    is_first = True
-    # fc_outputs = []
-
-    # Fully Connected Layer
-    for i in range(max_sent):
-
-        fc1_W = weight_variable([features, fc_hiddens], name='fc1_W', reuse=fc_reuse)
-        fc1_b = bias_variable([fc_hiddens, ], name='fc1_b', reuse=fc_reuse)
-
-        if batch_norm:
-            fc1_out = tf.layers.batch_normalization(fc1_out)
-
-        fc1_out = tf.nn.relu(tf.matmul(contextCNNs[i], fc1_W) + fc1_b)
-
-        fc2_W = weight_variable([fc_hiddens, NDclasses], name='fc2_W', reuse=fc_reuse)
-        fc2_b = bias_variable([NDclasses, ], name='fc2_b', reuse=fc_reuse)
-        fc2_out = tf.matmul(fc1_out, fc2_W) + fc2_b
-
-        # y_pre = fc2_out
-        y_pre = tf.nn.softmax(fc2_out)
-
-        y_pre = tf.expand_dims(y_pre, axis=1)
-
-        if is_first:
-            fc_outputs = y_pre
-            fc_reuse = True
-            is_first = False
-        else:
-            fc_outputs = tf.concat([fc_outputs, y_pre], axis=1)
-
     return fc_outputs

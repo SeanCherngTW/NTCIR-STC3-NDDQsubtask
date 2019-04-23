@@ -63,6 +63,7 @@ def start_trainND(
     min_dev_loss = sys.maxsize
     train_losses = []
     dev_losses = []
+    current_early_stoping = 0
 
     train_num_sent = sum(train_turns)
     dev_num_sent = sum(dev_turns)
