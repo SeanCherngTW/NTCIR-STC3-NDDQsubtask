@@ -1,46 +1,57 @@
 # NTCIR-STC3-NDDQsubtask 
 Works of NTCIR14 STC-3 Nugget Detection &amp; Dialogue Quality tasks [(link)](https://sakai-lab.github.io/stc3-dataset/)
+Proposed paper: [arXiv: 1907.03070](https://arxiv.org/abs/1907.03070)
 
 ## Directory
-/bert: 存放bert的原始碼 <br/>
-/BertPretrainModel: google訓練好的bert的pretrain model <br/>
-/PickleBert: 把NTCIR的資料集處理成bert的形式後存下來的檔案 <br/>
-/PickleCorpus: 把NTCIR的資料集處理成比較容易給model用的格式後存下的檔案 <br/>
-/PickleResult: ND&DQ subtask測試的結果的pickle檔 <br/>
-bert.ipynb: NTCIR格式前處理成bert格式 <br/>
-<br/>
-param.py: 訓練時用到的參數 <br/>
-stcevaluation.py: 評估nugget detection和dialogue quality任務的結果 <br/>
-stctokenizer.py: 分詞用的工具 <br/>
-<br/>
-## Experiments
-測試Model時共分為三類 <br/>
-1. 使用NTCIR-STC3 word embedding + softmax 的測試
-2. 使用BERT word embedding + softmax 的測試
-3. 使用BERT word embedding + CRF 的測試 (僅限nugget detection任務)
+/bert: Source code of BERT <br/>
+/BertPretrainModel: Pretrained model of BERT <br/>
+/PickleCorpus: NTCIR-STC3 corpus preprocessed into embeddings <br/>
+/PickleBert: NTCIR-STC3 embeddings preprocessed into BERT format <br/>
+/PickleResult: The result of ND&DQ subtask <br/>
 
 ## Files
-會用到的檔案分別如下
-1. 使用NTCIR-STC3 word embedding + softmax 的測試 <br/>
-Hierarchical_model.ipynb: 主程式 <br/>
-datahelper.py: 資料前處理/後處理的class <br/>
-dialogquality.py: dialogue quality用的模型、loss function等 <br/>
-dialogquality_ndfeature.py: dialogue quality 用的模型、loss function等，但包含了nugget detection的結果作為特徵 <br/>
-nuggetdetection.py: nugget detection用的模型、loss function等 <br/>
-stc_train.py: tensorflow建立graph用、以及讀入資料進行訓練用
+bert.ipynb: Preprocess NTCIR-STC3 embeddings to BERT format <br/>
+param.py: parameters for models <br/>
+stcevaluation.py: Evaluation methods provided by NTCIR-14 <br/>
+stctokenizer.py: Tokenizer for this task <br/>
 
-2. 使用BERT word embedding + softmax 的測試 <br/>
-Hierarchical_BERT_model.ipynb: 主程式 <br/>
-datahelper.py: 資料前處理/後處理的class <br/>
-dialogquality_ndfeatureBERT.py: dialogue quality 用的模型、loss function等，包含了nugget detection的結果作為特徵(必須以BERT embedding作為輸入) <br/>
-dialogqualityBERT.py: dialogue quality用的模型、loss function等(必須以BERT embedding作為輸入) <br/>
-nuggetdetectionBERT.py: nugget detection用的模型、loss function等(必須以BERT embedding作為輸入) <br/>
-stc_trainBERT.py: tensorflow建立graph用、以及讀入資料進行訓練用(必須以BERT embedding作為輸入) <br/>
+## Models
+There are 3 types of models
+1. Using word embedding trained by NTCIR-STC3 corpus, and use softmax function as the final layer (to fit the evaluation of NTCIR-14)
+2. Using BERT as sentence embedding, and use softmax function as the final layer 
+3. Using BERT as sentence embedding, and use CRF the final layer (ND subtask only)
 
-3. 使用BERT word embedding + CRF 的測試 (僅限nugget detection任務) <br/>
-Hierarchical_CRF_model.ipynb: 主程式 <br/>
-datahelperCRF.py: 資料前處理/後處理的class，轉成CRF格式 <br/>
-nuggetdetectionCRF.py: nugget detection用的模型、loss function等(必須以BERT embedding作為輸入，CRF為輸出) <br/>
-stc_trainCRF.py: tensorflow建立graph用、以及讀入資料進行訓練用(必須以BERT embedding作為輸入，CRF為輸出) <br/>
+### Note of different models
+1. NTCIR-STC3 word embedding + softmax (Input should be NTCIR-STC3 word embedding format)
++ Hierarchical_model.ipynb: Main function
++ datahelper.py: Data processing
++ nuggetdetection.py: Model and loss function for ND subtask
++ dialogquality.py: Model and loss function for DQ subtask
++ dialogquality_ndfeature.py: Model and loss function for DQ subtask with ND result as feature
++ stc_train.py: Tensorflow graph
+
+2. BERT sentence embedding + softmax (Input should be BERT sentence embedding format)
++ Hierarchical_BERT_model.ipynb: Main function
++ datahelper.py: Data processing
++ nuggetdetectionBERT.py: Model and loss function for ND subtask
++ dialogquality_ndfeatureBERT.py: Model and loss function for DQ subtask with ND result as feature
++ dialogqualityBERT.py: Model and loss function for DQ subtask
++ stc_trainBERT.py: Tensorflow graph
+
+3. BERT sentence embedding + CRF (Input should be BERT sentence embedding format)
++ Hierarchical_CRF_model.ipynb: Main function
++ datahelperCRF.py: Data processing for CRF
++ nuggetdetectionCRF.py: Model and loss function for ND subtask (Output: CRF)
++ stc_trainCRF.py: Tensorflow graph
+
+## Evaluation
+[Proposed by sakai lab](https://sakai-lab.github.io/stc3-dataset/)
++ Dialogue Quality:
+    + NMD: Normalised Match Distance.
+    + RSNOD: Root Symmetric Normalised Order-aware Divergence
++ Nugget Detection:
+    + RNSS: Root Normalised Sum of Squared errors
+    + JSD: Jensen-Shannon divergence
 
 ## Result
+Please check out [here](https://arxiv.org/abs/1907.03070)
