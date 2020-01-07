@@ -1,19 +1,19 @@
 # NTCIR-STC3-NDDQsubtask 
-Works of NTCIR14 STC-3 Nugget Detection &amp; Dialogue Quality tasks [(link)](https://sakai-lab.github.io/stc3-dataset/)
+Works of NTCIR14 STC-3 Nugget Detection &amp; Dialogue Quality tasks [(link)](https://sakai-lab.github.io/stc3-dataset/) <br/>
 Proposed paper: [arXiv: 1907.03070](https://arxiv.org/abs/1907.03070)
 
-## Directory
-/bert: Source code of BERT <br/>
-/BertPretrainModel: Pretrained model of BERT <br/>
-/PickleCorpus: NTCIR-STC3 corpus preprocessed into embeddings <br/>
-/PickleBert: NTCIR-STC3 embeddings preprocessed into BERT format <br/>
-/PickleResult: The result of ND&DQ subtask <br/>
+## Directories
++ /bert: Source code of BERT <br/>
++ /BertPretrainModel: Pretrained model of BERT <br/>
++ /PickleCorpus: NTCIR-STC3 corpus preprocessed into embeddings <br/>
++ /PickleBert: NTCIR-STC3 embeddings preprocessed into BERT format <br/>
++ /PickleResult: The result of ND&DQ subtask <br/>
 
 ## Files
-bert.ipynb: Preprocess NTCIR-STC3 embeddings to BERT format <br/>
-param.py: parameters for models <br/>
-stcevaluation.py: Evaluation methods provided by NTCIR-14 <br/>
-stctokenizer.py: Tokenizer for this task <br/>
++ bert.ipynb: Preprocess NTCIR-STC3 embeddings to BERT format <br/>
++ param.py: parameters for models <br/>
++ stcevaluation.py: Evaluation methods provided by NTCIR-14 <br/>
++ stctokenizer.py: Tokenizer for this task <br/>
 
 ## Models
 There are 3 types of models
