@@ -1,4 +1,6 @@
-<<<<<<< HEAD
+# NTCIR-STC3-NDDQsubtask 
+Works of NTCIR14 STC-3 Nugget Detection &amp; Dialogue Quality tasks [(link)](https://sakai-lab.github.io/stc3-dataset/)
+
 /bert: 存放bert的原始碼
 /BertPretrainModel: google訓練好的bert的pretrain model
 /PickleBert: 把NTCIR的資料集處理成bert的形式後存下來的檔案
@@ -38,7 +40,3 @@ Hierarchical_CRF_model.ipynb: 主程式
 datahelperCRF.py: 資料前處理/後處理的class，轉成CRF格式
 nuggetdetectionCRF.py: nugget detection用的模型、loss function等(必須以BERT embedding作為輸入，CRF為輸出)
 stc_trainCRF.py: tensorflow建立graph用、以及讀入資料進行訓練用(必須以BERT embedding作為輸入，CRF為輸出)
-=======
-# NTCIR-STC3-NDDQsubtask 
-Works of NTCIR14 STC-3 Nugget Detection &amp; Dialogue Quality tasks [(link)](https://sakai-lab.github.io/stc3-dataset/)
->>>>>>> refs/remotes/origin/master
