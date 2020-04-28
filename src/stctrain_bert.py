@@ -40,6 +40,7 @@ def start_trainND(
     x, y, bs, turns, masks, num_sent = ND.init_input(doclen, embsize)
 
     pred = method(x, y, bs, turns, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, masks, memory_rnn_type)
+    tf.identity(pred, name="pred")
     with tf.name_scope('loss'):
         cost = ND.loss_function(pred, y, batch_size, num_sent, masks)
 
@@ -75,6 +76,7 @@ def start_trainND(
         sess.run(tf.global_variables_initializer())
         writer = tf.summary.FileWriter("logs/ND-{}/".format(method_info), sess.graph)
         for e in range(epoch):
+            print('Start epoch {}'.format(e))
             merge = list(zip(trainX, trainY, train_turns, train_masks))
             random.shuffle(merge)
             trainX, trainY, train_turns, train_masks = zip(*merge)
@@ -126,13 +128,17 @@ def start_trainND(
 
         if evaluate:
             pred_test = sess.run(pred, feed_dict={x: testX, bs: len(testX), turns: test_turns, masks: test_masks})
-            # saver = tf.train.Saver()
-            # modelname = [method.__name__, e + 1, len(Fnum), batch_size, gating, filter_size_str, hiddens, num_filters_str]
-            # modelpath = 'models/ND/{}.ckpt'.format('-'.join(map(str, modelname)))
-            # saver.save(sess, modelpath)
-            # print('{} is saved\n'.format(modelpath))
+            saver = tf.train.Saver()
+#             modelname = [method.__name__, e + 1, len(Fnum), batch_size, gating, filter_size_str, hiddens, num_filters_str]
+            modelname = 'NDsubtask'
+            modelpath = 'models/ND/{}.ckpt'.format(modelname)
+            saver.save(sess, modelpath)
+            print('{} is saved\n'.format(modelpath))
+            
+        print('SavedModel')
+        tf.saved_model.simple_save(sess,"./savemodel",inputs={"input_X": x, "output_Y": y, "batch_size": bs, "turns": turns, "masks" : masks, "num_sent": num_sent}, outputs={"pred": pred})
 
-        return pred_test, train_losses, dev_losses
+    return pred_test, train_losses, dev_losses
 
 
 def start_trainDQ(
@@ -178,6 +184,7 @@ def start_trainDQ(
         sess.run(tf.global_variables_initializer())
         writer = tf.summary.FileWriter(tensorboard_path, sess.graph)
         for e in range(epoch):
+            print('Start epoch {}'.format(e+1))
             merge = list(zip(trainX, trainY, train_turns))
             random.shuffle(merge)
             trainX, trainY, train_turns = zip(*merge)
@@ -227,11 +234,12 @@ def start_trainDQ(
 
         if evaluate:
             pred_test = sess.run(pred, feed_dict={x: testX, bs: len(testX), turns: test_turns})
-            # saver = tf.train.Saver()
-            # modelname = [method.__name__, e + 1, len(Fnum), batch_size, gating, filter_size_str, hiddens, num_filters_str]
-            # modelpath = 'models/ND/{}.ckpt'.format('-'.join(map(str, modelname)))
-            # saver.save(sess, modelpath)
-            # print('{} is saved\n'.format(modelpath))
+            saver = tf.train.Saver()
+#             modelname = [method.__name__, e + 1, len(Fnum), batch_size, gating, filter_size_str, hiddens, num_filters_str]
+            modelname = 'DQsubtask-{}score'.format(scoretype)
+            modelpath = 'models/DQ{}/{}.ckpt'.format(scoretype, modelname)
+            saver.save(sess, modelpath)
+            print('{} is saved\n'.format(modelpath))
 
         return pred_test, train_losses, dev_losses
 
@@ -251,6 +259,7 @@ def start_trainDQ_NDF(
 
     x, y, bs, turns, num_dialog, nd = DQNDF.init_input(doclen, embsize)
     pred = method(x, bs, turns, kp, hiddens, Fsize, Fnum, gating, bn, num_layers, nd, memory_rnn_type)
+    tf.identity(pred, name="pred")
     with tf.name_scope('loss'):
         cost = tf.divide(-tf.reduce_sum(y * tf.log(tf.clip_by_value(pred, 1e-10, 1.0))), tf.cast(num_dialog, tf.float32))
     with tf.name_scope('train'):
@@ -279,6 +288,7 @@ def start_trainDQ_NDF(
         sess.run(tf.global_variables_initializer())
         writer = tf.summary.FileWriter(tensorboard_path, sess.graph)
         for e in range(epoch):
+            print('Start epoch {}'.format(e))
             merge = list(zip(trainX, trainY, train_turns))
             random.shuffle(merge)
             trainX, trainY, train_turns = zip(*merge)
@@ -328,10 +338,13 @@ def start_trainDQ_NDF(
 
         if evaluate:
             pred_test = sess.run(pred, feed_dict={x: testX, bs: len(testX), turns: test_turns, nd: testND})
-            # saver = tf.train.Saver()
-            # modelname = [method.__name__, e + 1, len(Fnum), batch_size, gating, filter_size_str, hiddens, num_filters_str]
-            # modelpath = 'models/ND/{}.ckpt'.format('-'.join(map(str, modelname)))
-            # saver.save(sess, modelpath)
-            # print('{} is saved\n'.format(modelpath))
+            saver = tf.train.Saver()
+#             modelname = [method.__name__, e + 1, len(Fnum), batch_size, gating, filter_size_str, hiddens, num_filters_str]
+            modelname = 'DQsubtask-{}score'.format(scoretype)
+            modelpath = 'models/DQ{}/{}.ckpt'.format(scoretype, modelname)
+            saver.save(sess, modelpath)
+            print('{} is saved\n'.format(modelpath))
+            
+        tf.saved_model.simple_save(sess,"./savemodel{}".format(scoretype),inputs={"input_X": x, "output_Y": y, "batch_size": bs, "turns": turns, "num_dialog": num_dialog, "nd": nd}, outputs={"pred": pred})
 
-        return pred_test, train_losses, dev_losses
+    return pred_test, train_losses, dev_losses

@@ -26,7 +26,7 @@ class DataHelper:
         self.embsize = param.embsize
         self.max_sent = param.max_sent
         self.NDclasses = param.NDclasses
-        self.glove_300d = pickle.load(open('GloVe_840B_300d.p', 'rb'))
+        # self.glove_300d = pickle.load(open('GloVe_840B_300d.p', 'rb'))
 
         with open('../data/test_data_en.json', encoding='utf8') as f:
             self.test_en = json.load(f)
